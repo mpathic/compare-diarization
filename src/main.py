@@ -17,43 +17,37 @@ from src.processors import td_revai, td_assemblyai, td_opensource
 
 
 logging.basicConfig(
-    # level=logging.INFO,
-    level=logging.DEBUG,
-    format='%(asctime)s %(name)s [%(levelname)s] %(message)s'
+	# level=logging.INFO,
+	level=logging.DEBUG,
+	format='%(asctime)s %(name)s [%(levelname)s] %(message)s'
 )
 logger = logging.getLogger(__name__)
 
 
 def process_audio(audio_file):
+	logger.info("Starting processors ...")
 
-    results = {}
-
-    # do revai
-    logger.info("Starting rev ai processing ...")
-    continuous_transcript, split_diarized_transcript = td_revai.process(audio_file)
-
-    results['revai'] = {
-        'continuous_transcript' : continuous_transcript,
-        'split_diarized_transcript' : split_diarized_transcript
-    }
-
-    # do aai
-    logger.info("Starting assembly ai processing ...")
-
-    # do open source
-
+	results = {
+		'revai' : td_revai.process(audio_file),			# do revai
+		'assemblyai' : td_assemblyai.process(audio_file), # do aai
+		'opensource' : td_opensource.process(audio_file) # do open source
+	}
+	logger.info("Finished processing audio file through sep methods.")
+	return results
+	
 
 def main():
 
-    logger.info("starting ...")
+	logger.info("starting ...")
 
-    # run against a single audio file, use something already on disk
-    audio_file = "g2v2sfwfQ84_Brief_intervention_Dave.mp3"
-    process_audio(audio_file)
+	# run against a single audio file, use something already on disk
+	audio_file = "g2v2sfwfQ84_Brief_intervention_Dave.mp3"
+
+	results = process_audio(audio_file)
 
 
-    logger.info("Workflow finished.")
+	logger.info("Workflow finished.")
 
 
 if __name__ == "__main__":
-    main()
+	main()

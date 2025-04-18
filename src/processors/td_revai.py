@@ -120,14 +120,18 @@ def callback(transcript, filepath):
 	write_outputs(transcript_utterances, basename)
 
 	#  now parse the objects for the return
-	continuous_transcription, diarized_groups = format_result(transcript_utterances)
+	unified_transcript, what_speakers_said = format_result(transcript_utterances)
 
-	logger.debug(f"Continuous transcription: {continuous_transcription}")
+	logger.debug(f"Continuous transcription: {unified_transcript}")
 	logger.debug(f"Diarized who said what text:")
-	for k,v in diarized_groups.items():
-		logger.info(f"\t {k}:{v}")
+	for k,v in what_speakers_said.items():
+		logger.debug(f"\t {k}:{v}")
 
-	return continuous_transcription, diarized_groups
+	result = {
+		'continuous_transcript' : unified_transcript,
+		'split_diarized_transcript' : what_speakers_said
+	}
+	return result
 
 
 def process(audio_file):
