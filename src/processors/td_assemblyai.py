@@ -37,7 +37,7 @@ def save_assemblyai_diarized_output(transcript, output_path='assemblyai_diarized
 		for speaker in speaker_texts.keys():
 			# join their texts together with nothing
 			speakers_utterances = ' '.join(speaker_texts[speaker])
-			f.write(f"{speakers_utterances}\n")
+			f.write(f"{speaker}:\n{speakers_utterances}\n")
 
 
 
@@ -92,7 +92,7 @@ def process(audio_file):
 
 	result = {
 		'continuous_transcript' : unified_transcript,
-		'split_diarized_transcript' : what_speakers_said
+		'whosaidwhat_transcript' : what_speakers_said
 	}
 	return result
 

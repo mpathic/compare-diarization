@@ -75,7 +75,7 @@ def save_revai_diarized_output(transcript, output_path='revai_diarized_transcrip
 		for speaker in speaker_texts.keys():
 			# join their texts together with a space
 			speakers_utterances = ' '.join(speaker_texts[speaker])
-			f.write(f"{speakers_utterances}\n")
+			f.write(f"{speaker}:\n{speakers_utterances}\n")
 
 
 def write_outputs(transcript_utterances, basename):
@@ -129,7 +129,7 @@ def callback(transcript, filepath):
 
 	result = {
 		'continuous_transcript' : unified_transcript,
-		'split_diarized_transcript' : what_speakers_said
+		'whosaidwhat_transcript' : what_speakers_said
 	}
 	return result
 
@@ -157,8 +157,8 @@ def process(audio_file):
 		if (details.status.name == 'TRANSCRIBED'):
 
 			transcript = client.get_transcript_json(job_id)
-			full_transcript, diarized_group_transcript = callback(transcript, audio_file)
-			return full_transcript, diarized_group_transcript
+			results = callback(transcript, audio_file)
+			return results
 			break
 
 		# if unsuccessful, print error
