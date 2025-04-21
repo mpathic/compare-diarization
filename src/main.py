@@ -11,7 +11,7 @@ load_dotenv() # load ennvars from .env file
 
 # from src.s3_fh import download_file
 from src.processors import td_revai, td_assemblyai, td_opensource
-from src.pull_videos import download
+from src.download_videos import download
 
 
 # from src.comparison.metrics import calculate_all_metrics
@@ -44,7 +44,7 @@ def process_audio(audio_file):
 
 
 def examine(results):
-	logger.info("Starting Evaluation Process ...")
+	logger.info("Evaluation Process ...")
 
 	# first get the WER 
 
@@ -117,51 +117,61 @@ def load_ground_truth(gt_filepath):
 
 def main():
 	logger.info("starting ...")
-
-	# comparison_results = defaultdict(dict) # something to save results in
-	comparison_results = {}
+	comparison_results = {} # collection of all the results
 
 	# load the ground truth transcripts
 	ground_truth_filepath = 'evaluation_data/AnnoMI-full-export-ground-truth.csv'
 	ground_truth = load_ground_truth(ground_truth_filepath) # this returns a dictionary
 
-	for transcript_id in list(ground_truth.keys())[:2]:
-		info = ground_truth[transcript_id]
-		comparison_results[transcript_id] = info # save metadata to result set
 
+	for transcript_id in list(ground_truth.keys())[:2]:
+		evaluation = {} # make a new one
+
+		info = ground_truth[transcript_id]
+		logger.info(f"{info['video_title']}:")
+		evaluation['video_title'] = info['video_title']
+
+		gt_transcript = ground_truth[transcript_id]['transcript'] # continuous transcript
+		gt_wsw_transcript = ground_truth[transcript_id]['who_said_what'] # whosaidwhat transcript
+
+		logger.info(f"\tGT transcript: {gt_transcript}")
+		gt_speakers = ground_truth[transcript_id]['who_said_what'].keys()
+
+		evaluation['gt_speakers'] = gt_speakers
+		evaluation['gt_num_speakers'] = len(gt_speakers)
+		
+
+		#
 		# get the file info, pull the file and process it.
+		#
 		video_url = info['video_url']
 		downloaded_file = download(video_url)
+		ground_truth[transcript_id]['downloaded_filepath'] = downloaded_file # keep track of its path
 
-		# save its path
-		ground_truth[transcript_id]['downloaded_filepath'] = downloaded_file
 
-		# get diarized transript for each of our own methods
+
+		#
+		# get diarized transript for each of 3 methods
+		#
 		results = process_audio(downloaded_file)
 
-		logger.info(f"{info['video_title']}")
-
-
-		gt_transcript = ground_truth[transcript_id]
-		logger.info(f"\tGT transcript: {gt_transcript}")
-		gt_transcript = ground_truth[transcript_id]['transcript']
-
-		gt_diarized_transcript = ground_truth[transcript_id]['who_said_what']
-		gt_speakers = ground_truth[transcript_id]['who_said_what'].keys()
 
 
 		# EVAL
 		# now, compare each with the ground truth item
-		comparison_results[transcript_id]['eval'] = {} # a set for eval
+		# comparison_results[transcript_id]['eval'] = {} # a set for eval
+		# evaluation[]
 		processor_methods = results.keys()
+
 
 		for processor in processor_methods:
 
-			print(processor)
-			print(results[processor])
-			comparison_results[transcript_id]['eval'][processor] = {}
+			logger.info(f"Evaluating GT against processor: {processor}")
+			evaluation[processor] = {}
 
+			#
 			# WER
+			#
 			# get levenstein distance for the continuous transcript
 			processor_transcript = results[processor]['continuous_transcript']
 			logger.info(f"\t{processor} transcript: {processor_transcript}")
@@ -169,24 +179,42 @@ def main():
 			# Calculate the distance
 			distance = Levenshtein.distance(gt_transcript, processor_transcript)
 			logger.info(f"distance: {distance}")  # Output: 3
+			evaluation[processor]['transcript_distance'] = distance
 
-			comparison_results[transcript_id]['eval'][processor]['transcript_distance'] = distance
-
-
+			#
 			# WSWER ~ DER
+			#
 			# get levenstein distance for the diarized groups
-			processor_wsw_transcript = results[processor]['whosaidwhat_transcript']
+			processor_wsw_transcript = results[processor]['whosaidwhat_transcript'] # wsw transcript
 			processor_speakers = results[processor]['whosaidwhat_transcript'].keys()
 
 			logger.info(f"GT contains {len(gt_speakers)} speakers.")
 			logger.info(f"Processor {processor} detected {len(processor_speakers)} speakers.")
+			evaluation[processor]['speakers'] = processor_speakers
+			evaluation[processor]['num_speakers'] = len(processor_speakers)
 
+
+			# log the outputs to aws, create an augmented GT file with the narrator's intro
+			# compare the number of speakers.
+			logger.info("GT transript items:")
+			for k,v in gt_wsw_transcript.items():
+				print(f"{k}: {v}\n")
+
+
+			logger.info("WSW transript items:")
+			for k,v in processor_wsw_transcript.items():
+				print(f"{k}: {v}\n")
+
+
+
+
+		comparison_results[transcript_id] = evaluation
 
 
 	logger.info("Workflow finished.")
-
-	for k,v in comparison_results[transcript_id]['eval'][processor].items():
+	for k,v in comparison_results.items():
 		print(k,v)
+
 
 
 if __name__ == "__main__":
