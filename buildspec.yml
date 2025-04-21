@@ -2,47 +2,50 @@ version: 0.2
 
 env:
   variables:
-    # These should be overridden when starting the build
-    S3_BUCKET: "your-input-bucket"
-    S3_KEY: "path/to/your/audio.mp3"
-    RESULTS_S3_PREFIX: "results/" # Optional: Where to upload results
-  parameter-store:
-    # Securely fetch secrets (API Keys) from AWS Systems Manager Parameter Store
-    PAID_SERVICE_1_API_KEY: "/production/services/paid1/api_key"
-    PAID_SERVICE_2_API_KEY: "/production/services/paid2/api_key"
-    # Add other sensitive parameters as needed
+    PACKAGE_NAME: "compare-diarization"
+    BUILD_TIMESTAMP: "$(date +%Y-%m-%d_%H-%M-%S)"
 
 phases:
+
   install:
-    runtime-versions:
-      python: 3.11 # Or your preferred Python version
     commands:
-      - echo "Installing system dependencies if needed..."
-      # - sudo apt-get update && sudo apt-get install -y ffmpeg # Example if ffmpeg is needed
-      - echo "Installing Python dependencies..."
-      - pip install --upgrade pip
-      - pip install -r requirements.txt
-      # Optional: Download OS models if not included or in a custom image
-      # - echo "Downloading Open Source models..."
-      # - python src/processing/download_models.py # Example script
+      - export DEBIAN_FRONTEND=noninteractive
+      - nvidia-smi
+      
+      - apt-get -qq update
+      - uname -a 
+
+      - apt-get install -y cmake curl unzip ffmpeg git mpg123
+      - apt-get install -y python3 python3-pip git
+
+      - cmake --version
+      - git --version
+      
+      # replace the github with Oauth token login information in the URL.
+      - git config --global url."https://oauth2:${GHAPI}@github.com/".insteadOf "https://github.com/"
+   
+      - curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+      - unzip -q awscliv2.zip
+      - ./aws/install 1> /dev/null
+      - aws --version
+
+      - echo "Checking environment"
+      - echo ${API_TOKEN}
+      - echo $CODEBUILD_SOURCE_REPO_URL
+
+      - apt-get -qq -o=Dpkg::Use-Pty=0 -y install python3-pip 1> /dev/null
+      - python3 --version
+      - pip install --no-cache -r requirements.txt
+
 
   build:
     commands:
-      - echo "Starting processing for $S3_KEY in bucket $S3_BUCKET..."
-      # Pass secrets/config securely via environment variables (handled by `parameter-store`)
-      # The main script reads these environment variables
-      - python src/main.py --s3_bucket $S3_BUCKET --s3_key $S3_KEY --results_prefix $RESULTS_S3_PREFIX
-      - echo "Processing finished."
+      - set -e # stop build if errors
+      - echo "Running models ..."
+      - python3 -m src.main
+      - find . -maxdepth 2 -type d -ls -name aws -prune
 
-  post_build:
-    commands:
-      - echo "Build completed on $(date)"
-      # The main.py script handles uploading results, but you could add commands here too
-      # e.g., if main.py just saves results locally:
-      # - aws s3 cp results.json s3://$S3_BUCKET/$RESULTS_S3_PREFIX$(basename $S3_KEY).json
-
-# Optional: Define artifacts if you want CodeBuild to archive specific files
-# artifacts:
-#   files:
-#     - 'results/*.json'
-#   base-directory: '.' # Or wherever results are saved locally
+artifacts:
+  files:
+    - 'out/*'
+  discard-paths: no

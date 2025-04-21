@@ -36,7 +36,7 @@ def process_audio(audio_file):
 	results = {
 		'revai' : td_revai.process(audio_file),			# do revai
 		'assemblyai' : td_assemblyai.process(audio_file), # do aai
-		# 'opensource' : td_opensource.process(audio_file) # do open source
+		'opensource' : td_opensource.process(audio_file) # do open source
 	}
 	logger.info("Finished processing audio file through sep methods.")
 
@@ -124,7 +124,7 @@ def main():
 	ground_truth = load_ground_truth(ground_truth_filepath) # this returns a dictionary
 
 
-	for transcript_id in list(ground_truth.keys())[:2]:
+	for transcript_id in list(ground_truth.keys()):
 		evaluation = {} # make a new one
 
 		info = ground_truth[transcript_id]
