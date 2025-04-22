@@ -185,7 +185,7 @@ def main():
 		logger.info(f"\tGT transcript: {gt_transcript}")
 
 		# stash the number of ground truth speakers
-		gt_speakers = ground_truth[transcript_id]['who_said_what'].keys()
+		gt_speakers = list(ground_truth[transcript_id]['who_said_what'].keys())
 		evaluation['gt_speakers'] = gt_speakers
 		evaluation['gt_num_speakers'] = len(gt_speakers)
 		
@@ -231,7 +231,7 @@ def main():
 			logger.info(results[processor])
 
 			processor_wsw_transcript = results[processor]['whosaidwhat_transcript'] # wsw transcript
-			processor_speakers = results[processor]['whosaidwhat_transcript'].keys()
+			processor_speakers = list(results[processor]['whosaidwhat_transcript'].keys())
 
 			logger.info(f"GT contains {len(gt_speakers)} speakers.")
 			logger.info(f"Processor {processor} detected {len(processor_speakers)} speakers.")
@@ -255,6 +255,8 @@ def main():
 				continue
 
 			else:
+				# processor_speakers = ['A', 'B']
+				# gt_speakers = ['therapist', 'client']
 				evaluation[processor]['wsw_distance'] = {}
 
 				for i in range(len(gt_speakers)):
@@ -279,7 +281,7 @@ def main():
 
 	logger.info("Workflow finished.")
 	for k,v in comparison_results.items():
-		print(k,v)
+		logger.info(f"\t{k} => {v}")
 
 
 
