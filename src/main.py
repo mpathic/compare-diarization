@@ -275,7 +275,7 @@ def main():
 					evaluation[processor]['wsw_distance'][i] = {
 						'speaker_pair' : {
 											'gt_speaker': gt_speaker, 
-											'p_speaker': p_speaker}
+											'p_speaker': p_speaker},
 						'distance' : wsw_distance
 					}
 
