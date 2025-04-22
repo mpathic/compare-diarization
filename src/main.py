@@ -64,91 +64,91 @@ def examine(results):
 	'''
 
 def load_ground_truth(gt_filepath):
-    logger.info("Reading GT metadata and importing ground truth data (deduplicating utterances)...")
-    transcripts = {}
-    processed_utterances = set() # Keep track of (transcript_id, utterance_id) pairs
+	logger.info("Reading GT metadata and importing ground truth data (deduplicating utterances)...")
+	transcripts = {}
+	processed_utterances = set() # Keep track of (transcript_id, utterance_id) pairs
 
-    try:
-        with open(gt_filepath, 'r', encoding='utf-8') as file:
-            csv_reader = csv.DictReader(file)
+	try:
+		with open(gt_filepath, 'r', encoding='utf-8') as file:
+			csv_reader = csv.DictReader(file)
 
-            for i, row in enumerate(csv_reader):
-                try:
-                    transcript_id = row.get('transcript_id')
-                    utterance_id_str = row.get('utterance_id')
+			for i, row in enumerate(csv_reader):
+				try:
+					transcript_id = row.get('transcript_id')
+					utterance_id_str = row.get('utterance_id')
 
-                    # Basic validation
-                    if not transcript_id or utterance_id_str is None:
-                        logger.warning(f"Row {i+1}: Missing transcript_id or utterance_id. Skipping.")
-                        continue
+					# Basic validation
+					if not transcript_id or utterance_id_str is None:
+						logger.warning(f"Row {i+1}: Missing transcript_id or utterance_id. Skipping.")
+						continue
 
-                    try:
-                        utterance_id = int(utterance_id_str)
-                    except ValueError:
-                        logger.warning(f"Row {i+1}: Invalid utterance_id '{utterance_id_str}'. Skipping.")
-                        continue
+					try:
+						utterance_id = int(utterance_id_str)
+					except ValueError:
+						logger.warning(f"Row {i+1}: Invalid utterance_id '{utterance_id_str}'. Skipping.")
+						continue
 
-                    # --- Deduplication Check ---
-                    utterance_key = (transcript_id, utterance_id)
-                    if utterance_key in processed_utterances:
-                        logger.debug(f"Row {i+1}: Duplicate utterance {utterance_key}. Skipping text append.")
-                        continue
+					# --- Deduplication Check ---
+					utterance_key = (transcript_id, utterance_id)
+					if utterance_key in processed_utterances:
+						logger.debug(f"Row {i+1}: Duplicate utterance {utterance_key}. Skipping text append.")
+						continue
 
-                    processed_utterances.add(utterance_key)
-                    # --------------------------
+					processed_utterances.add(utterance_key)
+					# --------------------------
 
-                    video_title = row.get('video_title', 'N/A')
-                    video_url = row.get('video_url', 'N/A')
-                    mi_quality = row.get('mi_quality', 'N/A')
-                    speaker = row.get('interlocutor', 'Unknown')
-                    text = row.get('utterance_text', '').strip()
+					video_title = row.get('video_title', 'N/A')
+					video_url = row.get('video_url', 'N/A')
+					mi_quality = row.get('mi_quality', 'N/A')
+					speaker = row.get('interlocutor', 'Unknown')
+					text = row.get('utterance_text', '').strip()
 
-                    # Initialize transcript entry if it's the first time seeing this transcript_id
-                    if transcript_id not in transcripts:
-                        logger.debug(f"Adding gt video {video_url}:{video_title}...")
-                        transcripts[transcript_id] = {
-                            'transcript_id' : transcript_id,
-                            'video_title' : video_title,
-                            'video_url' : video_url,
-                            'mi_quality' : mi_quality,
-                            'all_utterances' : [],
-                            'who_said_what' : {}
-                        }
+					# Initialize transcript entry if it's the first time seeing this transcript_id
+					if transcript_id not in transcripts:
+						logger.debug(f"Adding gt video {video_url}:{video_title}...")
+						transcripts[transcript_id] = {
+							'transcript_id' : transcript_id,
+							'video_title' : video_title,
+							'video_url' : video_url,
+							'mi_quality' : mi_quality,
+							'all_utterances' : [],
+							'who_said_what' : {}
+						}
 
-                    # Append utterance text (only happens if not a duplicate key)
-                    transcripts[transcript_id]['all_utterances'].append(text)
+					# Append utterance text (only happens if not a duplicate key)
+					transcripts[transcript_id]['all_utterances'].append(text)
 
-                    # Append speaker-specific text
-                    if speaker not in transcripts[transcript_id]['who_said_what']:
-                        transcripts[transcript_id]['who_said_what'][speaker] = []
-                    transcripts[transcript_id]['who_said_what'][speaker].append(text)
+					# Append speaker-specific text
+					if speaker not in transcripts[transcript_id]['who_said_what']:
+						transcripts[transcript_id]['who_said_what'][speaker] = []
+					transcripts[transcript_id]['who_said_what'][speaker].append(text)
 
-                except KeyError as e:
-                     logger.error(f"Row {i+1}: Missing expected column key: {e}. Check CSV header.")
-                except Exception as e:
-                     logger.error(f"Row {i+1}: Unexpected error processing row: {e}")
+				except KeyError as e:
+					 logger.error(f"Row {i+1}: Missing expected column key: {e}. Check CSV header.")
+				except Exception as e:
+					 logger.error(f"Row {i+1}: Unexpected error processing row: {e}")
 
-    except FileNotFoundError:
-        logger.error(f"Error: File not found at {gt_filepath}")
-        return {}
-    except Exception as e:
-        logger.error(f"Error opening or reading file {gt_filepath}: {e}")
-        return {}
+	except FileNotFoundError:
+		logger.error(f"Error: File not found at {gt_filepath}")
+		return {}
+	except Exception as e:
+		logger.error(f"Error opening or reading file {gt_filepath}: {e}")
+		return {}
 
-    # Consolidate texts
-    logger.info("Consolidating transcript texts...")
-    for transcript_id, item in transcripts.items():
-        # Sort utterances? If the CSV isn't guaranteed to be sorted by utterance_id,
-        # you might want to store (utterance_id, text) tuples and sort before joining.
-        # For now, assuming order is preserved or acceptable as is.
-        text_paragraph = ' '.join(item['all_utterances'])
-        transcripts[transcript_id]['transcript'] = text_paragraph # continuous transcript
+	# Consolidate texts
+	logger.info("Consolidating transcript texts...")
+	for transcript_id, item in transcripts.items():
+		# Sort utterances? If the CSV isn't guaranteed to be sorted by utterance_id,
+		# you might want to store (utterance_id, text) tuples and sort before joining.
+		# For now, assuming order is preserved or acceptable as is.
+		text_paragraph = ' '.join(item['all_utterances'])
+		transcripts[transcript_id]['transcript'] = text_paragraph # continuous transcript
 
-        for speaker, their_texts in item['who_said_what'].items():
-            transcripts[transcript_id]['who_said_what'][speaker] = ' '.join(their_texts) # overwrite with consolidated text
+		for speaker, their_texts in item['who_said_what'].items():
+			transcripts[transcript_id]['who_said_what'][speaker] = ' '.join(their_texts) # overwrite with consolidated text
 
-    logger.info("Done importing and deduplicating ground truth data.")
-    return transcripts
+	logger.info("Done importing and deduplicating ground truth data.")
+	return transcripts
 
 
 
@@ -227,6 +227,9 @@ def main():
 			# WSWER ~DER
 			#
 			# get levenstein distance for the diarized groups
+			logger.info("\nprocessors results:")
+			logger.info(results[processor])
+
 			processor_wsw_transcript = results[processor]['whosaidwhat_transcript'] # wsw transcript
 			processor_speakers = results[processor]['whosaidwhat_transcript'].keys()
 
@@ -240,17 +243,18 @@ def main():
 			# compare the number of speakers.
 			logger.info("\nGT transript items:")
 			for k,v in gt_wsw_transcript.items():
-				print(f"{k}: {v}\n")
-
+				logger.info(f"{k}: {v}")
 
 			logger.info("\nWSW transript items:")
 			for k,v in processor_wsw_transcript.items():
-				print(f"{k}: {v}\n")
+				logger.info(f"{k}: {v}\n")
 
 
 			if len(gt_speakers) != len(processor_speakers):
 				logger.warning("Different number of speakers detected (!) Skipping ...")
+				continue
 
+			else:
 				evaluation[processor]['wsw_distance'] = {}
 
 				for i in range(len(gt_speakers)):
