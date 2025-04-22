@@ -162,7 +162,7 @@ def main():
 	ground_truth = load_ground_truth(ground_truth_filepath)
 
 	# download the audio files locally in the project
-	audio_filepaths = s3_download() # {transcript_id : filepath}
+	audio_filepaths = s3_download_files() # {transcript_id : filepath}
 
 	# iterate over each transcript_id
 	for transcript_id in list(ground_truth.keys()):
