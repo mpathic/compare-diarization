@@ -200,7 +200,7 @@ def main():
 		#
 		# get diarized transript for each of 3 methods
 		#
-		results = process_audio(downloaded_file)
+		results = process_audio(audio_filepath)
 
 
 		# EVALUATION
