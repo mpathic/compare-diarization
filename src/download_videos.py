@@ -3,10 +3,11 @@ import re
 import csv
 import sys
 import logging
+import time
 
 import yt_dlp
 
-logger = logging.getLogger(__name__) # respect mains loglevel
+logger = logging.getLogger(__name__)  # respect mains loglevel
 
 def load_urls_from_file(file_path):
     """Load URLs from a CSV or text file"""
@@ -47,6 +48,7 @@ def extract_video_id(url):
         return url.split("v=")[1].split("&")[0]
     return None
 
+
 def sanitize_filename(title):
     sanitized = re.sub(r'[^\w\-]', '_', title)
     sanitized = re.sub(r'_+', '_', sanitized)
@@ -54,9 +56,9 @@ def sanitize_filename(title):
     return sanitized
 
 
-def download_audio(url, output_dir, video_id):
+def download_audio(url, output_dir, file_prefix):
     """Download audio from a YouTube URL using yt-dlp"""
-    output_template = os.path.join(output_dir, f"{video_id}_%(title)s.%(ext)s")
+    output_template = os.path.join(output_dir, f"{file_prefix}_%(title)s.%(ext)s")
 
     ydl_opts = {
         'format': 'bestaudio/best',
@@ -68,35 +70,58 @@ def download_audio(url, output_dir, video_id):
         }],
         'quiet': True,
         'no_warnings': True,
+        # Add retries for transient network issues
+        'retries': 5,
+        'fragment_retries': 5,
+        'skip_unavailable_fragments': True,
     }
     
     logger.debug(f"Starting download using yt-dlp from {url}")
     
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        downloaded_file = ydl.prepare_filename(info)
-        
-        # Get the base filename without extension
-        base_filename = downloaded_file.rsplit('.', 1)[0]
-        
-        # Sanitize the filename
-        title = info.get('title', 'Unknown')
-        sanitized_title = sanitize_filename(title)
-        
-        # Create new filename with sanitized title
-        new_base_filename = os.path.join(output_dir, f"{video_id}_{sanitized_title}")
-        mp3_filename = f"{new_base_filename}.mp3"
-        
-        # Rename the file if it exists
-        old_mp3_filename = f"{base_filename}.mp3"
-        if os.path.exists(old_mp3_filename) and old_mp3_filename != mp3_filename:
-            os.rename(old_mp3_filename, mp3_filename)
-            logger.debug(f"Renamed file to: {mp3_filename}")
-        
-        return mp3_filename, info
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            if not info:
+                logger.error(f"Failed to extract info from URL: {url}")
+                return None, None
+                
+            downloaded_file = ydl.prepare_filename(info)
+            
+            # Get the base filename without extension
+            base_filename = downloaded_file.rsplit('.', 1)[0]
+            
+            # Sanitize the filename - replace spaces with underscores
+            title = info.get('title', 'Unknown')
+            sanitized_title = sanitize_filename(title)
+            
+            # Create new filename with sanitized title
+            new_base_filename = os.path.join(output_dir, f"{file_prefix}_{sanitized_title}")
+            mp3_filename = f"{new_base_filename}.mp3"
+            
+            # Rename the file if it exists
+            old_mp3_filename = f"{base_filename}.mp3"
+            if os.path.exists(old_mp3_filename):
+                if old_mp3_filename != mp3_filename:
+                    try:
+                        os.rename(old_mp3_filename, mp3_filename)
+                        logger.debug(f"Renamed file to: {mp3_filename}")
+                    except OSError as e:
+                        logger.warning(f"Could not rename file {old_mp3_filename} to {mp3_filename}: {str(e)}")
+                        mp3_filename = old_mp3_filename  # Use the original filename
+                return mp3_filename, info
+            else:
+                logger.error(f"Expected mp3 file not found at {old_mp3_filename}")
+                return None, info  # Return None to indicate failure
+                    
+    except yt_dlp.utils.DownloadError as e:
+        logger.error(f"yt-dlp download error for {url}: {str(e)}")
+        return None, None
+    except Exception as e:
+        logger.error(f"Unexpected error downloading audio from {url}: {str(e)}", exc_info=True)
+        return None, None
 
 
-def download(url, output_dir="downloads"):
+def download(url, transcript_id=None, output_dir="downloads", max_retries=3):
     """
     Download YouTube videos from the ANNO MI dataset
     """
@@ -106,30 +131,57 @@ def download(url, output_dir="downloads"):
     os.makedirs(output_dir, exist_ok=True)
     
     total_bytes_downloaded = 0
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            # Extract video ID from the URL (only for fallback)
+            video_id = extract_video_id(url)
+            if not video_id:
+                logger.warning(f"Could not extract video ID from URL: {url}, will use a placeholder")
+                video_id = "unknown_video"
 
-    try:
-        # Extract video ID from the URL
-        video_id = extract_video_id(url)
-        if not video_id:
-            logger.error(f"Could not extract video ID from URL: {url}") # this will skip video id prefix
+            # Use transcript_id for filename if provided, otherwise use video_id
+            file_prefix = transcript_id if transcript_id else video_id
+            mp3_filename, info = download_audio(url, output_dir, file_prefix)
 
-        mp3_filename, info = download_audio(url, output_dir, video_id)
+            if mp3_filename is None:
+                logger.warning(f"Download failed for URL: {url}. Attempt {retry_count + 1}/{max_retries}")
+                retry_count += 1
+                time.sleep(2)  # Wait before retrying
+                continue
 
-        # check if exists and get info
-        if os.path.exists(mp3_filename):
-            file_size = os.path.getsize(mp3_filename)
-            total_bytes_downloaded += file_size
-            logger.info(f"Downloaded: {os.path.basename(mp3_filename)} ({file_size/1024/1024:.2f} MB)")
-        else:
-            logger.error(f"Expected file not found after download: {mp3_filename}")
-            sys.exit()
+            # Check if the file exists and has content
+            if os.path.exists(mp3_filename):
+                file_size = os.path.getsize(mp3_filename)
+                if file_size > 0:
+                    total_bytes_downloaded += file_size
+                    logger.info(f"Downloaded: {os.path.basename(mp3_filename)} ({file_size/1024/1024:.2f} MB)")
+                    return mp3_filename
+                else:
+                    logger.warning(f"Downloaded file has zero size: {mp3_filename}")
+                    os.remove(mp3_filename)  # Remove empty file
+                    retry_count += 1
+                    continue
+            else:
+                logger.warning(f"Expected file not found after download: {mp3_filename}")
+                retry_count += 1
+                continue
 
-    except Exception as e:
-        logger.error(f"Error downloading {url}: {str(e)}", exc_info=True)
+        except Exception as e:
+            logger.error(f"Error downloading {url}: {str(e)}", exc_info=True)
+            retry_count += 1
+            if retry_count < max_retries:
+                logger.info(f"Retrying download ({retry_count}/{max_retries})...")
+                time.sleep(2)  # Wait before retrying
+            continue
 
-    logger.info("done.")
-
-    return mp3_filename
+    # If we've exhausted all retries
+    error_msg = f"Failed to download audio after {max_retries} attempts from URL: {url} - skipping this video"
+    logger.error(error_msg)
+    
+    # Return None to indicate failure
+    return None
 
 
 def main():
@@ -138,4 +190,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

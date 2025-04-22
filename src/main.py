@@ -9,7 +9,7 @@ import csv
 from dotenv import load_dotenv
 load_dotenv() # load ennvars from .env file
 
-# from src.s3_fh import download_file
+from src.s3_fh import s3_download_files
 from src.processors import td_revai, td_assemblyai, td_opensource
 from src.download_videos import download
 
@@ -63,55 +63,93 @@ def examine(results):
 	speaker used in the conversation.
 	'''
 
-
 def load_ground_truth(gt_filepath):
-	# store the transcript data by transcript_id
-	logger.info("Reading GT metadata and importing ground truth data ...")
-	transcripts = {}
+    logger.info("Reading GT metadata and importing ground truth data (deduplicating utterances)...")
+    transcripts = {}
+    processed_utterances = set() # Keep track of (transcript_id, utterance_id) pairs
 
-	with open(gt_filepath, 'r') as file:
-		csv_reader = csv.DictReader(file)
-		
-		for row in csv_reader:
+    try:
+        with open(gt_filepath, 'r', encoding='utf-8') as file:
+            csv_reader = csv.DictReader(file)
 
-			transcript_id = row['transcript_id']
-			video_title = row['video_title']
-			video_url = row['video_url']
-			mi_quality = row['mi_quality'] # from 23 low and 100 high
-			utterance_id = int(row['utterance_id'])
-			speaker = row['interlocutor']
-			text = row['utterance_text'].strip()
+            for i, row in enumerate(csv_reader):
+                try:
+                    transcript_id = row.get('transcript_id')
+                    utterance_id_str = row.get('utterance_id')
 
-			if transcript_id not in transcripts.keys():
-				logger.debug(f"Adding gt video {video_url}:{video_title}...")
+                    # Basic validation
+                    if not transcript_id or utterance_id_str is None:
+                        logger.warning(f"Row {i+1}: Missing transcript_id or utterance_id. Skipping.")
+                        continue
 
-				transcripts[transcript_id] = {
-					'transcript_id' : transcript_id,
-					'video_title' : video_title,
-					'video_url' : video_url,
-					'mi_quality' : mi_quality,
-					'all_utterances' : [],
-					'who_said_what' : {}
-				}
+                    try:
+                        utterance_id = int(utterance_id_str)
+                    except ValueError:
+                        logger.warning(f"Row {i+1}: Invalid utterance_id '{utterance_id_str}'. Skipping.")
+                        continue
 
-			transcripts[transcript_id]['all_utterances'].append(text) # list of texts
+                    # --- Deduplication Check ---
+                    utterance_key = (transcript_id, utterance_id)
+                    if utterance_key in processed_utterances:
+                        logger.debug(f"Row {i+1}: Duplicate utterance {utterance_key}. Skipping text append.")
+                        continue
 
-			if speaker not in transcripts[transcript_id]['who_said_what'].keys():
-				transcripts[transcript_id]['who_said_what'][speaker] = []
+                    processed_utterances.add(utterance_key)
+                    # --------------------------
 
-			transcripts[transcript_id]['who_said_what'][speaker].append(text)
+                    video_title = row.get('video_title', 'N/A')
+                    video_url = row.get('video_url', 'N/A')
+                    mi_quality = row.get('mi_quality', 'N/A')
+                    speaker = row.get('interlocutor', 'Unknown')
+                    text = row.get('utterance_text', '').strip()
 
-	# now go through and consolidate them to the correct output
-	for transcript_id, item in transcripts.items():
+                    # Initialize transcript entry if it's the first time seeing this transcript_id
+                    if transcript_id not in transcripts:
+                        logger.debug(f"Adding gt video {video_url}:{video_title}...")
+                        transcripts[transcript_id] = {
+                            'transcript_id' : transcript_id,
+                            'video_title' : video_title,
+                            'video_url' : video_url,
+                            'mi_quality' : mi_quality,
+                            'all_utterances' : [],
+                            'who_said_what' : {}
+                        }
 
-		text_paragraph = ' '.join(item['all_utterances'])
-		transcripts[transcript_id]['transcript'] = text_paragraph # continuous transript
+                    # Append utterance text (only happens if not a duplicate key)
+                    transcripts[transcript_id]['all_utterances'].append(text)
 
-		for speaker, their_texts in item['who_said_what'].items():
-			transcripts[transcript_id]['who_said_what'][speaker] = ' '.join(their_texts) # overwrite
+                    # Append speaker-specific text
+                    if speaker not in transcripts[transcript_id]['who_said_what']:
+                        transcripts[transcript_id]['who_said_what'][speaker] = []
+                    transcripts[transcript_id]['who_said_what'][speaker].append(text)
 
-	logger.info("Done importing ground truth data.")
-	return transcripts
+                except KeyError as e:
+                     logger.error(f"Row {i+1}: Missing expected column key: {e}. Check CSV header.")
+                except Exception as e:
+                     logger.error(f"Row {i+1}: Unexpected error processing row: {e}")
+
+    except FileNotFoundError:
+        logger.error(f"Error: File not found at {gt_filepath}")
+        return {}
+    except Exception as e:
+        logger.error(f"Error opening or reading file {gt_filepath}: {e}")
+        return {}
+
+    # Consolidate texts
+    logger.info("Consolidating transcript texts...")
+    for transcript_id, item in transcripts.items():
+        # Sort utterances? If the CSV isn't guaranteed to be sorted by utterance_id,
+        # you might want to store (utterance_id, text) tuples and sort before joining.
+        # For now, assuming order is preserved or acceptable as is.
+        text_paragraph = ' '.join(item['all_utterances'])
+        transcripts[transcript_id]['transcript'] = text_paragraph # continuous transcript
+
+        for speaker, their_texts in item['who_said_what'].items():
+            transcripts[transcript_id]['who_said_what'][speaker] = ' '.join(their_texts) # overwrite with consolidated text
+
+    logger.info("Done importing and deduplicating ground truth data.")
+    return transcripts
+
 
 
 
@@ -121,33 +159,42 @@ def main():
 
 	# load the ground truth transcripts
 	ground_truth_filepath = 'evaluation_data/AnnoMI-full-export-ground-truth.csv'
-	ground_truth = load_ground_truth(ground_truth_filepath) # this returns a dictionary
+	ground_truth = load_ground_truth(ground_truth_filepath)
 
+	# download the audio files locally in the project
+	audio_filepaths = s3_download() # {transcript_id : filepath}
 
+	# iterate over each transcript_id
 	for transcript_id in list(ground_truth.keys()):
 		evaluation = {} # make a new one
 
-		info = ground_truth[transcript_id]
-		logger.info(f"{info['video_title']}:")
-		evaluation['video_title'] = info['video_title']
+		# simple pass, just do this one video for now
+		if int(transcript_id) != 4:
+			continue
 
+
+		info = ground_truth[transcript_id]
+		evaluation['video_title'] = info['video_title']
+		logger.info(f"{info['video_title']}:")
+
+		# downloaded_file = download(info['video_url'], transcript_id=transcript_id) # former
+
+		# stash the ground truth transcripts
 		gt_transcript = ground_truth[transcript_id]['transcript'] # continuous transcript
 		gt_wsw_transcript = ground_truth[transcript_id]['who_said_what'] # whosaidwhat transcript
-
 		logger.info(f"\tGT transcript: {gt_transcript}")
-		gt_speakers = ground_truth[transcript_id]['who_said_what'].keys()
 
+		# stash the number of ground truth speakers
+		gt_speakers = ground_truth[transcript_id]['who_said_what'].keys()
 		evaluation['gt_speakers'] = gt_speakers
 		evaluation['gt_num_speakers'] = len(gt_speakers)
 		
 
 		#
-		# get the file info, pull the file and process it.
+		# reference the audio file for this transcript
 		#
-		video_url = info['video_url']
-		downloaded_file = download(video_url)
-		ground_truth[transcript_id]['downloaded_filepath'] = downloaded_file # keep track of its path
-
+		audio_filepath = audio_filepaths[transcript_id]
+		evaluation['downloaded_filepath'] = audio_filepath # keep track of its path
 
 
 		#
@@ -156,14 +203,9 @@ def main():
 		results = process_audio(downloaded_file)
 
 
-
-		# EVAL
+		# EVALUATION
 		# now, compare each with the ground truth item
-		# comparison_results[transcript_id]['eval'] = {} # a set for eval
-		# evaluation[]
 		processor_methods = results.keys()
-
-
 		for processor in processor_methods:
 
 			logger.info(f"Evaluating GT against processor: {processor}")
@@ -182,7 +224,7 @@ def main():
 			evaluation[processor]['transcript_distance'] = distance
 
 			#
-			# WSWER ~ DER
+			# WSWER ~DER
 			#
 			# get levenstein distance for the diarized groups
 			processor_wsw_transcript = results[processor]['whosaidwhat_transcript'] # wsw transcript
@@ -196,12 +238,12 @@ def main():
 
 			# log the outputs to aws, create an augmented GT file with the narrator's intro
 			# compare the number of speakers.
-			logger.info("GT transript items:")
+			logger.info("\nGT transript items:")
 			for k,v in gt_wsw_transcript.items():
 				print(f"{k}: {v}\n")
 
 
-			logger.info("WSW transript items:")
+			logger.info("\nWSW transript items:")
 			for k,v in processor_wsw_transcript.items():
 				print(f"{k}: {v}\n")
 
