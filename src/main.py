@@ -263,17 +263,21 @@ def main():
 					print(i)
 
 					gt_speaker = gt_speakers[i] # gt sspeaker
-					processor_speaker = processor_speakers[i] # process
-					logger.info(f"GT Speaker {gt_speaker} and {processor} Speaker {processor_speaker}")
+					p_speaker = processor_speakers[i] # process
+					logger.info(f"GT Speaker {gt_speaker} and {processor} Speaker {p_speaker}")
 
 					gt_wsw_segment = gt_wsw_transcript[gt_speaker]
-					processor_wsw_segment = processor_wsw_transcript[processor_speakers]
-					wsw_distance = Levenshtein.distance(gt_wsw_segment, processor_wsw_segment)
+					p_wsw_segment = processor_wsw_transcript[p_speaker]
+
+					wsw_distance = Levenshtein.distance(gt_wsw_segment, p_wsw_segment)
 					logger.info(f"WSW distance: {wsw_distance}")  # Output: 3
 
-					evaluation[processor]['wsw_distance'][i] = wsw_distance
-
-
+					evaluation[processor]['wsw_distance'][i] = {
+						'speaker_pair' : {
+											'gt_speaker': gt_speaker, 
+											'p_speaker': p_speaker}
+						'distance' : wsw_distance
+					}
 
 
 		comparison_results[transcript_id] = evaluation
