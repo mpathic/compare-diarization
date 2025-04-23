@@ -139,8 +139,8 @@ def load_ground_truth(gt_filepath):
 	logger.info("Consolidating transcript texts...")
 	for transcript_id, item in transcripts.items():
 		# Sort utterances? If the CSV isn't guaranteed to be sorted by utterance_id,
-		# you might want to store (utterance_id, text) tuples and sort before joining.
-		# For now, assuming order is preserved or acceptable as is.
+		# might want to store (utterance_id, text) tuples and sort before joining.
+		# For now, assuming order is preserved or OK as is.
 		text_paragraph = ' '.join(item['all_utterances'])
 		transcripts[transcript_id]['transcript'] = text_paragraph # continuous transcript
 
@@ -151,6 +151,19 @@ def load_ground_truth(gt_filepath):
 	return transcripts
 
 
+def write_results_to_file(results, output_filepath='out/evaluation_results.json'):
+    """
+    Writes comparison results to a JSON file on disk.
+    """
+    logger.info(f"Writing results to {output_filepath}...")
+    try:
+        with open(output_filepath, 'w', encoding='utf-8') as f:
+            json.dump(results, f, indent=4)
+        logger.info(f"Results successfully written to {output_filepath}")
+        return output_filepath
+    except Exception as e:
+        logger.error(f"Error writing results to file: {e}")
+        return None
 
 
 def main():
@@ -286,6 +299,8 @@ def main():
 	logger.info("Workflow finished.")
 	for k,v in comparison_results.items():
 		logger.info(f"\t{k} => {v}")
+
+	write_results_to_file(comparison_results)
 
 
 
