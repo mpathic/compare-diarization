@@ -168,9 +168,9 @@ def main():
 	for transcript_id in list(ground_truth.keys()):
 		evaluation = {} # make a new one
 
-		# simple pass, just do this one video for now
-		if int(transcript_id) != 4:
-			continue
+		# # simple pass, just do this one video for now
+		# if int(transcript_id) != 4:
+		# 	continue
 
 
 		info = ground_truth[transcript_id]
