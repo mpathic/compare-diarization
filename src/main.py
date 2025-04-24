@@ -187,19 +187,18 @@ def main():
 
 	# iterate over each transcript_id
 	for transcript_id in list(ground_truth.keys()):
+		logger.info(f"Starting to process transcript {transcript_id} ...")
 		evaluation = {} # make a new one
 
-		# simple pass, just do this one video for now
-		# if int(transcript_id) != 4:
-		if int(transcript_id) != 6:
-			continue
+		# # simple pass, just do this one video for now
+		# # if int(transcript_id) != 4:
+		# if int(transcript_id) != 6:
+		# 	continue
 
 
 		info = ground_truth[transcript_id]
 		evaluation['video_title'] = info['video_title']
-		logger.info(f"{info['video_title']}:")
-
-		# downloaded_file = download(info['video_url'], transcript_id=transcript_id) # former
+		logger.info(f"Title: {info['video_title']}:")
 
 		# stash the ground truth transcripts
 		gt_transcript = ground_truth[transcript_id]['transcript'] # continuous transcript

@@ -1,9 +1,12 @@
 version: 0.2
+
 env:
   variables:
     PACKAGE_NAME: "compare-diarization"
     BUILD_TIMESTAMP: "$(date +%Y-%m-%d_%H-%M-%S)"
+
 phases:
+
   install:
     commands:
       - export DEBIAN_FRONTEND=noninteractive
@@ -11,8 +14,10 @@ phases:
       
       - apt-get -qq update
       - uname -a 
+
       - apt-get install -y cmake curl unzip ffmpeg git mpg123
       - apt-get install -y python3 python3-pip git
+
       - cmake --version
       - git --version
       
@@ -23,24 +28,25 @@ phases:
       - unzip -q awscliv2.zip
       - ./aws/install 1> /dev/null
       - aws --version
+
       - echo "Checking environment"
       - echo ${API_TOKEN}
       - echo $CODEBUILD_SOURCE_REPO_URL
+
       - apt-get -qq -o=Dpkg::Use-Pty=0 -y install python3-pip 1> /dev/null
       - python3 --version
       - pip install --no-cache -r requirements.txt
+
+
   build:
     commands:
       - set -e # stop build if errors
       - echo "Running models ..."
       - python3 -m src.main
       - find . -maxdepth 2 -type d -ls -name aws -prune
-      # Create a custom directory for artifacts with build ID
-      - mkdir -p "out_${CODEBUILD_BUILD_ID}"
-      - cp -r out/* "out_${CODEBUILD_BUILD_ID}/"
+
 artifacts:
   files:
-    - 'out_${CODEBUILD_BUILD_ID}/**/*'
-  base-directory: '.'
+    - 'out/*'
   discard-paths: no
-  name: "${PACKAGE_NAME}-${CODEBUILD_BUILD_ID}-${BUILD_TIMESTAMP}"
+  name: "my-custom-name-${CODEBUILD_BUILD_ID}"  # This line controls the folder name
