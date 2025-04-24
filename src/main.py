@@ -186,8 +186,8 @@ def main():
 	# for now
 	transcrips_to_sample = list(ground_truth.keys())
 	random.seed(42)
-	num_to_sample = int(len(my_list) * sample_percentage)
-	sampled_transcripts = random.sample(my_list, num_to_sample)
+	num_to_sample = int(len(transcrips_to_sample) * sample_percentage)
+	sampled_transcripts = random.sample(transcrips_to_sample, num_to_sample)
 
 
 	# collect the transcript ids with narrators etc:
