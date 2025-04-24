@@ -63,6 +63,7 @@ def format_result(transcript):
 
 
 def process(audio_file):
+	logger.info("Starting Assembly AI method")
 
 	# make outfile names
 	os.makedirs('out', exist_ok = True)

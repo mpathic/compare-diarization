@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 
 out/
+audio_files/
 .DS_Store
 
 # C extensions

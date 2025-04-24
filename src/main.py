@@ -177,6 +177,14 @@ def main():
 	# download the audio files locally in the project
 	audio_filepaths = s3_download_files() # {transcript_id : filepath}
 
+	logger.debug("Pulled the following files from S3:")
+	for k,v in audio_filepaths.items():
+		logger.debug(f"{k} : {v}")
+
+
+	# collect the transcript ids with narrators etc:
+	transcripts_diffnum_speakers = []
+
 	# iterate over each transcript_id
 	for transcript_id in list(ground_truth.keys()):
 		evaluation = {} # make a new one
@@ -266,6 +274,12 @@ def main():
 
 			if len(gt_speakers) != len(processor_speakers):
 				logger.warning("Different number of speakers detected (!) Skipping ...")
+				transcripts_diffnum_speakers.append({
+					transcript_id: evaluation['video_title'],
+					'processor' : processor,
+					'gt_speakers' : gt_speakers,
+					'processor_speakers' : processor_speakers
+					})
 				continue
 
 			else:
@@ -302,6 +316,10 @@ def main():
 		logger.info(f"\t{k} => {v}")
 
 	write_results_to_file(comparison_results)
+
+	logger.info("Files with diff number of speakers:")
+	for item in transcripts_diffnum_speakers:
+		logger.info(item)
 
 
 

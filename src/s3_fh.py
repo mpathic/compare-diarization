@@ -37,8 +37,8 @@ def s3_download_files():
     transcript_map = {}
     
     try:
-        # List objects in the bucket (up to 100)
-        response = s3.list_objects_v2(Bucket=S3_BUCKET_NAME, MaxKeys=100)
+        # List objects in the bucket (up to 200)
+        response = s3.list_objects_v2(Bucket=S3_BUCKET_NAME)
         
         if 'Contents' not in response:
             logger.warning(f"No files found in bucket {S3_BUCKET_NAME}")

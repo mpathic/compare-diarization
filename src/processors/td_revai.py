@@ -135,6 +135,7 @@ def callback(transcript, filepath):
 
 
 def process(audio_file):
+	logger.info("Starting Rev AI method")
 
 	# initialize Rev AI API client
 	REVAI_TOKEN = os.environ.get('REVAI_TOKEN')

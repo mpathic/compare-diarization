@@ -327,6 +327,7 @@ def write_transcript_to_disk(audio_path, transcript):
 
 
 def process(audio_path):
+	logger.info("Starting Open Source method")
 	#
 	# Setup
 	# 
