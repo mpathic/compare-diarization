@@ -270,8 +270,8 @@ def join_diarization_transcription(speech_regions, audio_path, whisper_model):
 		)
 		
 		# Log whisper segments
-		logger.info(f"Segment {i+1}: Got {len(segment_transcription['segments'])} Whisper segments")
-		logger.info(segment_transcription['text'])
+		logger.debug(f"Segment {i+1}: Got {len(segment_transcription['segments'])} Whisper segments")
+		logger.debug(segment_transcription['text'])
 
 		global_start = segment["start"]
 		global_end = segment["end"]

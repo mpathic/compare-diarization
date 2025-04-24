@@ -5,6 +5,7 @@ import json
 import sys
 import time
 import csv
+import random
 
 from dotenv import load_dotenv
 load_dotenv() # load ennvars from .env file
@@ -181,12 +182,19 @@ def main():
 	for k,v in audio_filepaths.items():
 		logger.debug(f"{k} : {v}")
 
+	# for simplicity and compute sake, only sample a few of the transcripts
+	# for now
+	transcrips_to_sample = list(ground_truth.keys())
+	random.seed(42)
+	num_to_sample = int(len(my_list) * sample_percentage)
+	sampled_transcripts = random.sample(my_list, num_to_sample)
+
 
 	# collect the transcript ids with narrators etc:
 	transcripts_diffnum_speakers = []
 
 	# iterate over each transcript_id
-	for transcript_id in list(ground_truth.keys()):
+	for transcript_id in sampled_transcripts:
 		logger.info(f"Starting to process transcript {transcript_id} ...")
 		evaluation = {} # make a new one
 
@@ -262,13 +270,13 @@ def main():
 
 			# log the outputs to aws, create an augmented GT file with the narrator's intro
 			# compare the number of speakers.
-			logger.info("\nGT transript items:")
-			for k,v in gt_wsw_transcript.items():
-				logger.info(f"{k}: {v}")
+			# logger.debug("\nGT transript items:")
+			# for k,v in gt_wsw_transcript.items():
+			# 	logger.debug(f"{k}: {v}")
 
-			logger.info("\nWSW transript items:")
+			logger.debug("\nWSW transript items:")
 			for k,v in processor_wsw_transcript.items():
-				logger.info(f"{k}: {v}\n")
+				logger.debug(f"{k}: {v}\n")
 
 
 			if len(gt_speakers) != len(processor_speakers):
@@ -287,7 +295,7 @@ def main():
 				evaluation[processor]['wsw_distance'] = {}
 
 				for i in range(len(gt_speakers)):
-					print(i)
+					logger.debug(f"gt_speaker index {i}")
 
 					gt_speaker = gt_speakers[i] # gt sspeaker
 					p_speaker = processor_speakers[i] # process
