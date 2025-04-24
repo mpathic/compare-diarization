@@ -57,3 +57,5 @@ phases:
 
 # Disable the standard artifacts handling
 artifacts:
+  type: NO_ARTIFACTS
+  
