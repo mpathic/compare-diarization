@@ -265,7 +265,8 @@ def join_diarization_transcription(speech_regions, audio_path, whisper_model):
 			condition_on_previous_text=True,
 			temperature=0.0,
 			compression_ratio_threshold=1.35,
-			verbose=True
+			verbose=True,
+			language="en"  # specify English language for now, add detect later, inconsistent between chunks sometimes
 		)
 		
 		# Log whisper segments
