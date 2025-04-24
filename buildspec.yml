@@ -4,6 +4,8 @@ env:
   variables:
     PACKAGE_NAME: "compare-diarization"
     BUILD_TIMESTAMP: "$(date +%Y-%m-%d_%H-%M-%S)"
+    S3_BUCKET: "codebuild-diarization"
+    CUSTOM_PATH: "custom-folder-name-${CODEBUILD_BUILD_NUMBER}"
 
 phases:
 
@@ -45,8 +47,13 @@ phases:
       - python3 -m src.main
       - find . -maxdepth 2 -type d -ls -name aws -prune
 
+  post_build:
+    commands:
+      # Upload directly to S3 with custom path
+      - aws s3 cp --recursive out/ s3://${S3_BUCKET}/${CUSTOM_PATH}/
+      # Optional - create a marker file to make it easier to find latest build
+      - echo "Build completed" > build-info.txt
+      - aws s3 cp build-info.txt s3://${S3_BUCKET}/${CUSTOM_PATH}/
+
+# Disable the standard artifacts handling
 artifacts:
-  files:
-    - 'out/*'
-  discard-paths: no
-  name: "my-custom-name-${CODEBUILD_BUILD_ID}"  # This line controls the folder name
