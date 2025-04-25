@@ -17,6 +17,7 @@ from src.download_videos import download
 
 # from src.comparison.metrics import calculate_all_metrics
 import Levenshtein
+from difflib import unified_diff
 
 
 ## USAGE (from root directory of project):
@@ -153,18 +154,18 @@ def load_ground_truth(gt_filepath):
 
 
 def write_results_to_file(results, output_filepath='out/evaluation_results.json'):
-    """
-    Writes comparison results to a JSON file on disk.
-    """
-    logger.info(f"Writing results to {output_filepath}...")
-    try:
-        with open(output_filepath, 'w', encoding='utf-8') as f:
-            json.dump(results, f, indent=4)
-        logger.info(f"Results successfully written to {output_filepath}")
-        return output_filepath
-    except Exception as e:
-        logger.error(f"Error writing results to file: {e}")
-        return None
+	"""
+	Writes comparison results to a JSON file on disk.
+	"""
+	logger.info(f"Writing results to {output_filepath}...")
+	try:
+		with open(output_filepath, 'w', encoding='utf-8') as f:
+			json.dump(results, f, indent=4)
+		logger.info(f"Results successfully written to {output_filepath}")
+		return output_filepath
+	except Exception as e:
+		logger.error(f"Error writing results to file: {e}")
+		return None
 
 
 def main():
@@ -175,6 +176,15 @@ def main():
 	ground_truth_filepath = 'evaluation_data/AnnoMI-full-export-ground-truth.csv'
 	ground_truth = load_ground_truth(ground_truth_filepath)
 
+	# for simplicity and compute sake, only sample a few of the transcripts
+	# for now
+	transcripts_to_sample = list(ground_truth.keys())
+
+	random.seed(42)
+	num_to_sample = int(len(transcripts_to_sample) * 0.15)
+	sampled_transcripts = random.sample(transcripts_to_sample, num_to_sample)
+	logger.info(f"Transcripts to be sampled: {sampled_transcripts}")
+
 	# download the audio files locally in the project
 	# audio_filepaths = s3_download_files() # {transcript_id : filepath}
 	audio_filepaths = s3_download_files(sampled_transcripts) # {transcript_id : filepath}
@@ -182,16 +192,6 @@ def main():
 	logger.debug("Pulled the following files from S3:")
 	for k,v in audio_filepaths.items():
 		logger.debug(f"{k} : {v}")
-
-	# for simplicity and compute sake, only sample a few of the transcripts
-	# for now
-	transcrips_to_sample = list(ground_truth.keys())
-	random.seed(42)
-	num_to_sample = int(len(transcrips_to_sample) * 0.15) # sample 15%
-	sampled_transcripts = random.sample(transcrips_to_sample, num_to_sample)
-
-
-	logger.info(f"Transcripts to be sampled: {sampled_transcripts}")
 
 
 	# collect the transcript ids with narrators etc:
@@ -298,18 +298,32 @@ def main():
 					})
 
 				# TESTING SKIP THE NARRATOR
-				use_processor_speakers = processor_speakers.pop(0) # just remove the first speaker and try
+				processor_speakers.pop(0)  # This modifies the list in place # just remove the first speaker and try
 
 				evaluation[processor]['wsw_distance'] = {}
+
 				for i in range(len(gt_speakers)):
 					logger.debug(f"gt_speaker index {i}")
+
 					gt_speaker = gt_speakers[i] # gt sspeaker
 					p_speaker = processor_speakers[i] # process
 					logger.info(f"GT Speaker {gt_speaker} and {processor} Speaker {p_speaker}")
+
 					gt_wsw_segment = gt_wsw_transcript[gt_speaker]
 					p_wsw_segment = processor_wsw_transcript[p_speaker]
 					wsw_distance = Levenshtein.distance(gt_wsw_segment, p_wsw_segment)
 					logger.info(f"WSW distance: {wsw_distance}")  # Output: 3
+
+					# Show word-level diff for debugging
+					diff = '\n'.join(unified_diff(
+						gt_wsw_segment.split(), 
+						p_wsw_segment.split(), 
+						fromfile='ground_truth', 
+						tofile='processor_output', 
+						lineterm=''
+					))
+					logger.debug(f"Text diff between GT and {processor}:\n{diff}")
+
 					evaluation[processor]['wsw_distance'][i] = {
 											'speaker_pair' : {
 											'gt_speaker': gt_speaker, 
@@ -335,6 +349,17 @@ def main():
 					wsw_distance = Levenshtein.distance(gt_wsw_segment, p_wsw_segment)
 					logger.info(f"WSW distance: {wsw_distance}")  # Output: 3
 
+					# Show word-level diff for debugging
+					diff = '\n'.join(unified_diff(
+						gt_wsw_segment.split(), 
+						p_wsw_segment.split(), 
+						fromfile='ground_truth', 
+						tofile='processor_output', 
+						lineterm=''
+					))
+					logger.debug(f"Text diff between GT and {processor}:\n{diff}")
+
+
 					evaluation[processor]['wsw_distance'][i] = {
 						'speaker_pair' : {
 											'gt_speaker': gt_speaker, 
@@ -344,11 +369,11 @@ def main():
 
 
 		comparison_results[transcript_id] = evaluation
+		logger.info(json.dumps(evaluation, indent=2))
 
 
 	logger.info("Workflow finished.")
-	for k,v in comparison_results.items():
-		logger.info(f"\t{k} => {v}")
+	logger.info(json.dumps(comparison_results, indent=2))
 
 	write_results_to_file(comparison_results)
 
