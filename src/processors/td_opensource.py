@@ -483,11 +483,30 @@ def process(audio_path):
 
 		speaker_blocks[speaker].append(utt_text)
 
-	logger.debug(f"Diarized who said what text:")
+
+	# ignore the speaker if they only talk for less than a half second overakll
+	# calculate total talk time for each speaker
+	speaker_talk_times = {}
+	for res in results:
+		speaker = res['assigned_speaker']
+		duration = res['utterance_end'] - res['utterance_start']
+		
+		if speaker not in speaker_talk_times:
+			speaker_talk_times[speaker] = 0
+		
+		speaker_talk_times[speaker] += duration
+
+	# filter out speakers with less than 0.5 sec of talk time
+	speakers_to_ignore = [speaker for speaker, talk_time in speaker_talk_times.items() if talk_time < 0.5]
+	logger.info(f"Ignoring {len(speakers_to_ignore)} speakers with less than 0.5 seconds of talk time: {speakers_to_ignore}")
+
+	# create what_speakers_said but exclude ignored speakers
 	what_speakers_said = {}
 	for speaker, textlist in speaker_blocks.items():
-		what_speakers_said[speaker] = ' '.join(textlist)
-		logger.debug(f"\t {speaker}:{what_speakers_said}")
+		if speaker not in speakers_to_ignore:
+			what_speakers_said[speaker] = ' '.join(textlist)
+			# logger.debug(f"\t {speaker}:{what_speakers_said}")
+
 
 	transcript_block = ' '.join(utterance_textlist)  # unified transcript
 

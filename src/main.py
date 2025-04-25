@@ -176,7 +176,8 @@ def main():
 	ground_truth = load_ground_truth(ground_truth_filepath)
 
 	# download the audio files locally in the project
-	audio_filepaths = s3_download_files() # {transcript_id : filepath}
+	# audio_filepaths = s3_download_files() # {transcript_id : filepath}
+	audio_filepaths = s3_download_files(sampled_transcripts) # {transcript_id : filepath}
 
 	logger.debug("Pulled the following files from S3:")
 	for k,v in audio_filepaths.items():
@@ -190,12 +191,20 @@ def main():
 	sampled_transcripts = random.sample(transcrips_to_sample, num_to_sample)
 
 
+	logger.info(f"Transcripts to be sampled: {sampled_transcripts}")
+
+
 	# collect the transcript ids with narrators etc:
 	transcripts_diffnum_speakers = []
 
 	# iterate over each transcript_id
+	i=1
 	for transcript_id in sampled_transcripts:
 		logger.info(f"Starting to process transcript {transcript_id} ...")
+
+		logger.info(f"\t item {i} / {num_to_sample}:")
+		i+=1
+
 		evaluation = {} # make a new one
 
 		# # simple pass, just do this one video for now

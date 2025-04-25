@@ -22,10 +22,13 @@ def download_from_s3(bucket_name, s3_key, download_path):
         logger.error(f"Error downloading file: {e}")
         return False
 
-def s3_download_files():
+def s3_download_files(transcript_ids=None):
     """
-    Download up to 100 files from the S3 bucket and return a mapping of transcript_id to file path.
-    Returns a dictionary of transcript_id to local_filepath
+    Download files from the S3 bucket for specified transcript IDs.
+    If transcript_ids is None, downloads all files.
+    
+    :param transcript_ids: List of transcript IDs to download, or None for all
+    :return: Dictionary mapping transcript_id to local_filepath
     """
     # Create directory to store the downloaded files
     os.makedirs('audio_files', exist_ok=True)
@@ -37,7 +40,7 @@ def s3_download_files():
     transcript_map = {}
     
     try:
-        # List objects in the bucket (up to 200)
+        # List objects in the bucket
         response = s3.list_objects_v2(Bucket=S3_BUCKET_NAME)
         
         if 'Contents' not in response:
@@ -55,6 +58,12 @@ def s3_download_files():
             match = re.match(r'(\d+)_.*', filename)
             if match:
                 transcript_id = match.group(1)
+                
+                # Skip files that aren't in our sample list (if a list was provided)
+                if transcript_ids is not None and transcript_id not in transcript_ids:
+                    logger.debug(f"Skipping {filename} as transcript_id {transcript_id} not in sample list")
+                    continue
+                
                 local_path = os.path.join('audio_files', filename)
                 
                 # Download the file
@@ -72,7 +81,9 @@ def s3_download_files():
 
 def main():
     logger.info("Starting S3 Pull ...")
-    transcript_mapping = download_files()
+    # If you want to test with specific IDs
+    # transcript_mapping = s3_download_files(['1', '2', '3'])
+    transcript_mapping = s3_download_files()
     logger.info(f"Completed with {len(transcript_mapping)} files mapped")
     return transcript_mapping
 
