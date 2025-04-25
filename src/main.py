@@ -289,14 +289,33 @@ def main():
 
 
 			if len(gt_speakers) != len(processor_speakers):
-				logger.warning("Different number of speakers detected (!) Skipping ...")
+				logger.warning("Different number of speakers detected (!) Skipping first speaker...")
 				transcripts_diffnum_speakers.append({
 					transcript_id: evaluation['video_title'],
 					'processor' : processor,
 					'gt_speakers' : gt_speakers,
 					'processor_speakers' : processor_speakers
 					})
-				continue
+
+				# TESTING SKIP THE NARRATOR
+				use_processor_speakers = processor_speakers.pop(0) # just remove the first speaker and try
+
+				evaluation[processor]['wsw_distance'] = {}
+				for i in range(len(gt_speakers)):
+					logger.debug(f"gt_speaker index {i}")
+					gt_speaker = gt_speakers[i] # gt sspeaker
+					p_speaker = processor_speakers[i] # process
+					logger.info(f"GT Speaker {gt_speaker} and {processor} Speaker {p_speaker}")
+					gt_wsw_segment = gt_wsw_transcript[gt_speaker]
+					p_wsw_segment = processor_wsw_transcript[p_speaker]
+					wsw_distance = Levenshtein.distance(gt_wsw_segment, p_wsw_segment)
+					logger.info(f"WSW distance: {wsw_distance}")  # Output: 3
+					evaluation[processor]['wsw_distance'][i] = {
+											'speaker_pair' : {
+											'gt_speaker': gt_speaker, 
+											'p_speaker': p_speaker},
+						'distance' : wsw_distance
+					}
 
 			else:
 				# processor_speakers = ['A', 'B']
