@@ -185,6 +185,12 @@ def main():
 	sampled_transcripts = random.sample(transcripts_to_sample, num_to_sample)
 	logger.info(f"Transcripts to be sampled: {sampled_transcripts}")
 
+	has_narrator = [34, 67, 132, 7, 123, 129]
+	filtered_transcripts = list(set(sampled_transcripts) - set(has_narrator))
+	sampled_transcripts = filtered_transcripts # rename for laziness
+	logger.info(f"Filtered transcripts (no narrator): {sampled_transcripts}")
+
+
 	# download the audio files locally in the project
 	# audio_filepaths = s3_download_files() # {transcript_id : filepath}
 	audio_filepaths = s3_download_files(sampled_transcripts) # {transcript_id : filepath}
@@ -254,11 +260,11 @@ def main():
 			#
 			# get levenstein distance for the continuous transcript
 			processor_transcript = results[processor]['continuous_transcript']
-			logger.info(f"\t{processor} transcript: {processor_transcript}")
+			# logger.info(f"\t{processor} transcript: {processor_transcript}")
 
 			# Calculate the distance
 			distance = Levenshtein.distance(gt_transcript, processor_transcript)
-			logger.info(f"distance: {distance}")  # Output: 3
+			logger.info(f"continuous transcript distance: {distance}")  # Output: 3
 			evaluation[processor]['transcript_distance'] = distance
 
 			#
@@ -283,13 +289,13 @@ def main():
 			# for k,v in gt_wsw_transcript.items():
 			# 	logger.debug(f"{k}: {v}")
 
-			logger.debug("\nWSW transript items:")
-			for k,v in processor_wsw_transcript.items():
-				logger.debug(f"{k}: {v}\n")
+			# logger.debug("\nWSW transript items:")
+			# for k,v in processor_wsw_transcript.items():
+			# 	logger.debug(f"{k}: {v}\n")
 
 
 			if len(gt_speakers) != len(processor_speakers):
-				logger.warning("Different number of speakers detected (!) Skipping first speaker...")
+				logger.warning("Different number of speakers detected (!) Skipping entire item from eval...")
 				transcripts_diffnum_speakers.append({
 					transcript_id: evaluation['video_title'],
 					'processor' : processor,
@@ -297,39 +303,41 @@ def main():
 					'processor_speakers' : processor_speakers
 					})
 
-				# TESTING SKIP THE NARRATOR
-				processor_speakers.pop(0)  # This modifies the list in place # just remove the first speaker and try
+				# # 
+				# # TESTING SKIP THE NARRATOR
+				# processor_speakers.pop(0)  # This modifies the list in place # just remove the first speaker and try
 
-				evaluation[processor]['wsw_distance'] = {}
+				# evaluation[processor]['wsw_distance'] = {}
 
-				for i in range(len(gt_speakers)):
-					logger.debug(f"gt_speaker index {i}")
+				# for i in range(len(gt_speakers)):
+				# 	logger.debug(f"gt_speaker index {i}")
 
-					gt_speaker = gt_speakers[i] # gt sspeaker
-					p_speaker = processor_speakers[i] # process
-					logger.info(f"GT Speaker {gt_speaker} and {processor} Speaker {p_speaker}")
+				# 	gt_speaker = gt_speakers[i] # gt sspeaker
+				# 	p_speaker = processor_speakers[i] # process
+				# 	logger.info(f"GT Speaker {gt_speaker} and {processor} Speaker {p_speaker}")
 
-					gt_wsw_segment = gt_wsw_transcript[gt_speaker]
-					p_wsw_segment = processor_wsw_transcript[p_speaker]
-					wsw_distance = Levenshtein.distance(gt_wsw_segment, p_wsw_segment)
-					logger.info(f"WSW distance: {wsw_distance}")  # Output: 3
+				# 	gt_wsw_segment = gt_wsw_transcript[gt_speaker]
+				# 	p_wsw_segment = processor_wsw_transcript[p_speaker]
+				# 	wsw_distance = Levenshtein.distance(gt_wsw_segment, p_wsw_segment)
+				# 	logger.info(f"WSW distance: {wsw_distance}")  # Output: 3
 
-					# Show word-level diff for debugging
-					diff = '\n'.join(unified_diff(
-						gt_wsw_segment.split(), 
-						p_wsw_segment.split(), 
-						fromfile='ground_truth', 
-						tofile='processor_output', 
-						lineterm=''
-					))
-					logger.debug(f"Text diff between GT and {processor}:\n{diff}")
+				# 	# Show word-level diff for debugging
+				# 	diff = '\n'.join(unified_diff(
+				# 		gt_wsw_segment.split(), 
+				# 		p_wsw_segment.split(), 
+				# 		fromfile='ground_truth', 
+				# 		tofile='processor_output', 
+				# 		lineterm=''
+				# 	))
+				# 	logger.debug(f"Text diff between GT and {processor}:\n{diff}")
 
-					evaluation[processor]['wsw_distance'][i] = {
-											'speaker_pair' : {
-											'gt_speaker': gt_speaker, 
-											'p_speaker': p_speaker},
-						'distance' : wsw_distance
-					}
+				# 	evaluation[processor]['wsw_distance'][i] = {
+				# 							'speaker_pair' : {
+				# 							'gt_speaker': gt_speaker, 
+				# 							'p_speaker': p_speaker},
+				# 		'distance' : wsw_distance
+				# 	}
+				continue
 
 			else:
 				# processor_speakers = ['A', 'B']

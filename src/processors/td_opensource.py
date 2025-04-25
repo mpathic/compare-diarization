@@ -448,7 +448,7 @@ def process(audio_path):
 
 		# ok now, print the best match with most overlap for this utterance
 		if max_overlap_speaker:
-			logger.info(f"\t Assigned Speaker: {max_overlap_speaker} (Max Overlap: {max_overlap:.3f} Turn: {max_overlap_turn_details})\n")
+			logger.debug(f"\t Assigned Speaker: {max_overlap_speaker} (Max Overlap: {max_overlap:.3f} Turn: {max_overlap_turn_details})\n")
 			results.append({
 				'utterance_segment_id': id_global,
 				'utterance_subsegment_id': id_local,
@@ -460,7 +460,7 @@ def process(audio_path):
 				'matched_turn_details': max_overlap_turn_details
 			})
 		else:
-			logger.info("\tNo speaker overlap found for this utterance (!) \n")
+			logger.debug("\tNo speaker overlap found for this utterance (!) \n")
 			results.append({
 				'utterance_segment_id': id_global,
 				'utterance_subsegment_id': id_local,

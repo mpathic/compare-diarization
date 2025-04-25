@@ -5,12 +5,15 @@ env:
     PACKAGE_NAME: "compare-diarization"
     BUILD_TIMESTAMP: "$(date +%Y-%m-%d_%H-%M-%S)"
     S3_BUCKET: "codebuild-diarization"
-    CUSTOM_PATH: "custom-folder-name-${CODEBUILD_BUILD_NUMBER}"
+    CUSTOM_PATH_BASE: "build-output"
 
 phases:
 
   install:
     commands:
+      # generate the s3 output folder name
+      - export CUSTOM_PATH="${CUSTOM_PATH_BASE}-${CODEBUILD_BUILD_NUMBER}"
+
       - export DEBIAN_FRONTEND=noninteractive
       - nvidia-smi
       
