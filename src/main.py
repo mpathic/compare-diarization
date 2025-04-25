@@ -303,6 +303,8 @@ def main():
 					'processor_speakers' : processor_speakers
 					})
 
+				# sometimes processor wont get 2 seakers just 1, so .
+				
 				# # 
 				# # TESTING SKIP THE NARRATOR
 				# processor_speakers.pop(0)  # This modifies the list in place # just remove the first speaker and try

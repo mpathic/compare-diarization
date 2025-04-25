@@ -476,6 +476,12 @@ def process(audio_path):
 	speaker_blocks = {}
 	for res in results:
 		speaker = res['assigned_speaker']
+		# Skip UNKNOWN speakers entirely, usually just one word attributed to UNK
+		# and i would rather have this detect the number of speakers more accurately
+		# than adding an entirely new speaker for one word.
+		if speaker == 'UNKNOWN':
+			continue
+
 		utt_text = res['utterance_text'].strip()
 
 		if speaker not in speaker_blocks.keys():
