@@ -177,7 +177,6 @@ def main():
 	ground_truth = load_ground_truth(ground_truth_filepath)
 
 	# for simplicity and compute sake, only sample a few of the transcripts
-	# for now
 	transcripts_to_sample = list(ground_truth.keys())
 
 	random.seed(0)
@@ -192,7 +191,6 @@ def main():
 
 
 	# download the audio files locally in the project
-	# audio_filepaths = s3_download_files() # {transcript_id : filepath}
 	audio_filepaths = s3_download_files(sampled_transcripts) # {transcript_id : filepath}
 
 	logger.debug("Pulled the following files from S3:")
@@ -210,32 +208,25 @@ def main():
 		logger.info(f"\t item {i} / {num_to_sample}:")
 		i+=1
 
-		# parse info
+		# parse audio info
 		audio_info = audio_filepaths[transcript_id]
 		audio_filepath = audio_info['filepath']
 		audio_duration = audio_info['duration']
-		title = audio_info['video_title']
 
+		# parse ground truth info
+		transcript_info = ground_truth[transcript_id]
+		title = transcript_info['video_title']
 		logger.info(f"Title: {title}:")
+
+		gt_speakers = list(transcript_info['who_said_what'].keys())
+		gt_transcript = transcript_info['transcript'] # continuous transcript
+		gt_wsw_transcript = transcript_info['who_said_what'] # whosaidwhat transcript
+		
 
 		evaluation = {} # make a new one
 		evaluation['audio_duration'] = audio_duration
-
-		# stash the ground truth transcripts
-		gt_transcript = ground_truth[transcript_id]['transcript'] # continuous transcript
-		gt_wsw_transcript = ground_truth[transcript_id]['who_said_what'] # whosaidwhat transcript
-		logger.info(f"\tGT transcript: {gt_transcript}")
-
-		# stash the number of ground truth speakers
-		gt_speakers = list(ground_truth[transcript_id]['who_said_what'].keys())
 		evaluation['gt_speakers'] = gt_speakers
 		evaluation['gt_num_speakers'] = len(gt_speakers)
-		
-
-		#
-		# reference the audio file for this transcript
-		#
-		audio_filepath = audio_filepaths[transcript_id]
 		evaluation['downloaded_filepath'] = audio_filepath # keep track of its path
 
 
