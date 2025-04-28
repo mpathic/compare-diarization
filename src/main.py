@@ -168,8 +168,6 @@ def write_results_to_file(results, output_filepath='out/evaluation_results.json'
 		return None
 
 
-
-
 def main():
 	logger.info("starting ...")
 	comparison_results = {} # collection of all the results
@@ -303,6 +301,11 @@ def main():
 
 					gt_wsw_segment = gt_wsw_transcript[gt_speaker]
 					p_wsw_segment = processor_wsw_transcript[p_speaker]
+					logger.info("GT Segment:")
+					logger.info(gt_wsw_segment)
+
+					logger.info("Processor Segment:")
+					logger.info(p_wsw_segment)
 
 					wsw_distance = Levenshtein.distance(gt_wsw_segment, p_wsw_segment)
 					logger.info(f"WSW distance: {wsw_distance}")  # Output: 3
