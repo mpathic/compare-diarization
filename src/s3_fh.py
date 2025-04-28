@@ -2,6 +2,7 @@ import os
 import logging
 import boto3
 import re
+from pydub import AudioSegment
 
 logger = logging.getLogger(__name__)  # respect main's loglevel
 
@@ -84,7 +85,7 @@ def s3_download_files(transcript_ids=None):
                 # Download the file
                 logger.info(f"Downloading {s3_key} to {local_path}...")
                 if download_from_s3(S3_BUCKET_NAME, s3_key, local_path):
-                    
+                
                     duration = get_audio_duration(local_path) # Get audio duration
 
                     # Store both filepath and duration
