@@ -292,12 +292,11 @@ def main():
 
 	has_narrator = [34, 67, 132, 7, 123, 129, 109]
 	filtered_transcripts = list(set(sampled_transcripts) - set(has_narrator))
-	sampled_transcripts = filtered_transcripts # rename for laziness
-	logger.info(f"Filtered transcripts (no narrator): {sampled_transcripts}")
+	logger.info(f"Filtered transcripts (no narrator): {filtered_transcripts}")
 
 
 	# download the audio files locally in the project
-	audio_filepaths = s3_download_files(sampled_transcripts) # {transcript_id : filepath}
+	audio_filepaths = s3_download_files(filtered_transcripts) # {transcript_id : filepath}
 
 	logger.debug("Pulled the following files from S3:")
 	for k,v in audio_filepaths.items():
@@ -309,7 +308,7 @@ def main():
 
 	# iterate over each transcript_id
 	i=1
-	for transcript_id in sampled_transcripts:
+	for transcript_id in filtered_transcripts:
 		logger.info(f"Starting to process transcript {transcript_id} ...")
 		logger.info(f"\t item {i} / {num_to_sample}:")
 		i+=1
@@ -381,7 +380,7 @@ def main():
 			speaker_matches, distance_matrix = find_best_speaker_matches(
 				gt_wsw_transcript, processor_wsw_transcript
 			)
-			
+
 			# make a wsw distance comparison by selecting the best two choices
 			# Now evaluate using the matched speakers
 			evaluation[processor]['wsw_distance'] = {}
