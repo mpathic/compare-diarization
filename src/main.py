@@ -180,7 +180,7 @@ def main():
 	# for now
 	transcripts_to_sample = list(ground_truth.keys())
 
-	random.seed(42)
+	random.seed(0)
 	num_to_sample = int(len(transcripts_to_sample) * 0.15)
 	sampled_transcripts = random.sample(transcripts_to_sample, num_to_sample)
 	logger.info(f"Transcripts to be sampled: {sampled_transcripts}")
