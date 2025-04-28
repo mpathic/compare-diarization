@@ -274,7 +274,8 @@ def main():
 			if len(gt_speakers) != len(processor_speakers):
 				logger.warning("Different number of speakers detected (!) Skipping entire item from eval...")
 				transcripts_diffnum_speakers.append({
-					transcript_id: evaluation['video_title'],
+					'transcript_id': transcript_id,
+					'title' : title,
 					'processor' : processor,
 					'gt_speakers' : gt_speakers,
 					'processor_speakers' : processor_speakers
