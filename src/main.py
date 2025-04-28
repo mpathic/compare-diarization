@@ -168,6 +168,36 @@ def write_results_to_file(results, output_filepath='out/evaluation_results.json'
 		return None
 
 
+def match_speakers(gt_wsw_transcript, processor_wsw_transcript):
+	"""Match speakers based on content similarity rather than order."""
+	speaker_matches = {}
+	
+	# For each ground truth speaker
+	for gt_speaker, gt_text in gt_wsw_transcript.items():
+		# Find the processor speaker with the most similar text
+		best_match = None
+		best_similarity = float('inf')  # Using distance, so lower is better
+		
+		for p_speaker, p_text in processor_wsw_transcript.items():
+			# Skip speakers already matched
+			if p_speaker in speaker_matches.values():
+				continue
+				
+			# Calculate text similarity (Levenshtein distance)
+			similarity = Levenshtein.distance(gt_text, p_text)
+			
+			# Update best match if this is better
+			if similarity < best_similarity:
+				best_similarity = similarity
+				best_match = p_speaker
+		
+		# Store the mapping
+		if best_match:
+			speaker_matches[gt_speaker] = best_match
+	
+	return speaker_matches
+
+
 def main():
 	logger.info("starting ...")
 	comparison_results = {} # collection of all the results
@@ -189,6 +219,8 @@ def main():
 	sampled_transcripts = filtered_transcripts # rename for laziness
 	logger.info(f"Filtered transcripts (no narrator): {sampled_transcripts}")
 
+	# samples
+	# sampled_transcripts = [78]
 
 	# download the audio files locally in the project
 	audio_filepaths = s3_download_files(sampled_transcripts) # {transcript_id : filepath}
@@ -271,6 +303,9 @@ def main():
 			evaluation[processor]['speakers'] = processor_speakers
 			evaluation[processor]['num_speakers'] = len(processor_speakers)
 
+
+			# make a wsw distance comparison by selecting the best two choices
+
 			if len(gt_speakers) != len(processor_speakers):
 				logger.warning("Different number of speakers detected (!) Skipping entire item from eval...")
 				transcripts_diffnum_speakers.append({
@@ -285,42 +320,58 @@ def main():
 				continue
 
 			else:
-				# processor_speakers = ['A', 'B']
-				# gt_speakers = ['therapist', 'client']
+				# init an empty object to start
 				evaluation[processor]['wsw_distance'] = {}
 
-				for i in range(len(gt_speakers)):
-					logger.debug(f"gt_speaker index {i}")
+				# Get optimal speaker mapping
+				# processor_speakers = ['A', 'B']
+				# gt_speakers = ['therapist', 'client']
+				speaker_mapping = match_speakers(gt_wsw_transcript, processor_wsw_transcript)
 
-					gt_speaker = gt_speakers[i] # gt sspeaker
-					p_speaker = processor_speakers[i] # process
-					logger.info(f"GT Speaker {gt_speaker} and {processor} Speaker {p_speaker}")
+				for i, gt_speaker in enumerate(gt_speakers):
+					p_speaker = speaker_mapping.get(gt_speaker)
 
-					gt_wsw_segment = gt_wsw_transcript[gt_speaker]
-					p_wsw_segment = processor_wsw_transcript[p_speaker]
+					if p_speaker:
+						gt_wsw_segment = gt_wsw_transcript[gt_speaker]
+						p_wsw_segment = processor_wsw_transcript[p_speaker]
 
-					wsw_distance = Levenshtein.distance(gt_wsw_segment, p_wsw_segment)
-					logger.info(f"WSW distance: {wsw_distance}")  # Output: 3
+						wsw_distance = Levenshtein.distance(gt_wsw_segment, p_wsw_segment)
 
-					# Show word-level diff for debugging
-					diff = '\n'.join(unified_diff(
-						gt_wsw_segment.split(), 
-						p_wsw_segment.split(), 
-						fromfile='ground_truth', 
-						tofile='processor_output', 
-						lineterm=''
-					))
-					logger.debug(f"Text diff between GT and {processor}:\n{diff}")
-
-					evaluation[processor]['wsw_distance'][i] = {
-						'speaker_pair' : {
-											'gt_speaker': gt_speaker, 
-											'p_speaker': p_speaker},
-						'distance' : wsw_distance
-					}
+						evaluation[processor]['wsw_distance'][i] = {
+							'speaker_pair': {
+								'gt_speaker': gt_speaker, 
+								'p_speaker': p_speaker
+								},
+							'distance': wsw_distance
+						}
+						logger.info(f"GT Speaker {gt_speaker} and {processor} Speaker {p_speaker}")
+						logger.info(f"WSW distance: {wsw_distance}")  # Output: 3
 
 
+						# Show word-level diff for debugging
+						diff = '\n'.join(unified_diff(
+							gt_wsw_segment.split(), 
+							p_wsw_segment.split(), 
+							fromfile='ground_truth', 
+							tofile='processor_output', 
+							lineterm=''
+						))
+						logger.debug(f"Text diff between GT and {processor}:\n{diff}")
+
+					else:
+						logger.warning(f"No matching processor speaker found for GT speaker: {gt_speaker}")
+						evaluation[processor]['wsw_distance'][idx] = {  # Fixed variable name
+							'speaker_pair': {
+								'gt_speaker': gt_speaker, 
+								'p_speaker': None
+							},
+							'error': "No matching speaker found"
+						}
+
+
+		# push the eval object for all three processors to the result set
 		comparison_results[transcript_id] = evaluation
+		logger.info(f"Evaluation for transcript {transcript_id}:")
 		logger.info(json.dumps(evaluation, indent=2))
 
 
