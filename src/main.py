@@ -207,21 +207,19 @@ def main():
 	i=1
 	for transcript_id in sampled_transcripts:
 		logger.info(f"Starting to process transcript {transcript_id} ...")
-
 		logger.info(f"\t item {i} / {num_to_sample}:")
 		i+=1
 
+		# parse info
+		audio_info = audio_filepaths[transcript_id]
+		audio_filepath = audio_info['filepath']
+		audio_duration = audio_info['duration']
+		title = audio_info['video_title']
+
+		logger.info(f"Title: {title}:")
+
 		evaluation = {} # make a new one
-
-		# # simple pass, just do this one video for now
-		# # if int(transcript_id) != 4:
-		# if int(transcript_id) != 6:
-		# 	continue
-
-
-		info = ground_truth[transcript_id]
-		evaluation['video_title'] = info['video_title']
-		logger.info(f"Title: {info['video_title']}:")
+		evaluation['audio_duration'] = audio_duration
 
 		# stash the ground truth transcripts
 		gt_transcript = ground_truth[transcript_id]['transcript'] # continuous transcript
@@ -282,18 +280,6 @@ def main():
 			evaluation[processor]['speakers'] = processor_speakers
 			evaluation[processor]['num_speakers'] = len(processor_speakers)
 
-
-			# log the outputs to aws, create an augmented GT file with the narrator's intro
-			# compare the number of speakers.
-			# logger.debug("\nGT transript items:")
-			# for k,v in gt_wsw_transcript.items():
-			# 	logger.debug(f"{k}: {v}")
-
-			# logger.debug("\nWSW transript items:")
-			# for k,v in processor_wsw_transcript.items():
-			# 	logger.debug(f"{k}: {v}\n")
-
-
 			if len(gt_speakers) != len(processor_speakers):
 				logger.warning("Different number of speakers detected (!) Skipping entire item from eval...")
 				transcripts_diffnum_speakers.append({
@@ -303,42 +289,7 @@ def main():
 					'processor_speakers' : processor_speakers
 					})
 
-				# sometimes processor wont get 2 seakers just 1, so .
-				
-				# # 
-				# # TESTING SKIP THE NARRATOR
-				# processor_speakers.pop(0)  # This modifies the list in place # just remove the first speaker and try
-
-				# evaluation[processor]['wsw_distance'] = {}
-
-				# for i in range(len(gt_speakers)):
-				# 	logger.debug(f"gt_speaker index {i}")
-
-				# 	gt_speaker = gt_speakers[i] # gt sspeaker
-				# 	p_speaker = processor_speakers[i] # process
-				# 	logger.info(f"GT Speaker {gt_speaker} and {processor} Speaker {p_speaker}")
-
-				# 	gt_wsw_segment = gt_wsw_transcript[gt_speaker]
-				# 	p_wsw_segment = processor_wsw_transcript[p_speaker]
-				# 	wsw_distance = Levenshtein.distance(gt_wsw_segment, p_wsw_segment)
-				# 	logger.info(f"WSW distance: {wsw_distance}")  # Output: 3
-
-				# 	# Show word-level diff for debugging
-				# 	diff = '\n'.join(unified_diff(
-				# 		gt_wsw_segment.split(), 
-				# 		p_wsw_segment.split(), 
-				# 		fromfile='ground_truth', 
-				# 		tofile='processor_output', 
-				# 		lineterm=''
-				# 	))
-				# 	logger.debug(f"Text diff between GT and {processor}:\n{diff}")
-
-				# 	evaluation[processor]['wsw_distance'][i] = {
-				# 							'speaker_pair' : {
-				# 							'gt_speaker': gt_speaker, 
-				# 							'p_speaker': p_speaker},
-				# 		'distance' : wsw_distance
-				# 	}
+				# sometimes processor might not get 2 speakers, just 1, so how to evaluate that?
 				continue
 
 			else:
@@ -368,7 +319,6 @@ def main():
 						lineterm=''
 					))
 					logger.debug(f"Text diff between GT and {processor}:\n{diff}")
-
 
 					evaluation[processor]['wsw_distance'][i] = {
 						'speaker_pair' : {

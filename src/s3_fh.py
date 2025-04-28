@@ -5,6 +5,21 @@ import re
 
 logger = logging.getLogger(__name__)  # respect main's loglevel
 
+def get_audio_duration(file_path):
+    """
+    Get the duration of an audio file in seconds.
+    
+    :param file_path: Path to the audio file
+    :return: Duration in seconds (float) or None if error
+    """
+    try:
+        audio = AudioSegment.from_file(file_path)
+        duration_seconds = len(audio) / 1000.0  # pydub uses milliseconds
+        return duration_seconds
+    except Exception as e:
+        logger.error(f"Error getting audio duration for {file_path}: {e}")
+        return None
+
 def download_from_s3(bucket_name, s3_key, download_path):
     """
     Download a file from an S3 bucket.
@@ -69,7 +84,15 @@ def s3_download_files(transcript_ids=None):
                 # Download the file
                 logger.info(f"Downloading {s3_key} to {local_path}...")
                 if download_from_s3(S3_BUCKET_NAME, s3_key, local_path):
-                    transcript_map[transcript_id] = local_path
+                    
+                    duration = get_audio_duration(local_path) # Get audio duration
+
+                    # Store both filepath and duration
+                    transcript_map[transcript_id] = {
+                        'filepath': local_path,
+                        'duration': duration
+                    }
+                    logger.info(f"File {filename} duration: {duration:.2f} seconds")
             else:
                 logger.warning(f"Couldn't extract transcript_id from filename: {filename}")
                 
