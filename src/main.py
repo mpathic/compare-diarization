@@ -168,6 +168,112 @@ def write_results_to_file(results, output_filepath='out/evaluation_results.json'
 		return None
 
 
+def find_best_speaker_matches(gt_wsw_transcript, processor_wsw_transcript):
+	"""
+	Find the best matching pairs between ground truth speakers and processor speakers
+	based on text similarity (Levenshtein distance)
+	
+	Args:
+		gt_wsw_transcript: Dictionary of {speaker: text} from ground truth
+		processor_wsw_transcript: Dictionary of {speaker: text} from processor
+		
+	Returns:
+		list of tuples: [(gt_speaker, processor_speaker), ...]
+	"""
+	matches = []
+	distance_matrix = {}
+	
+	# Calculate distance between each pair of speakers
+	for gt_speaker, gt_text in gt_wsw_transcript.items():
+		distance_matrix[gt_speaker] = {}
+		for proc_speaker, proc_text in processor_wsw_transcript.items():
+			distance = Levenshtein.distance(gt_text, proc_text)
+			distance_matrix[gt_speaker][proc_speaker] = distance
+	
+	# Assign each ground truth speaker to best matching processor speaker
+	gt_speakers = list(gt_wsw_transcript.keys())
+	proc_speakers = list(processor_wsw_transcript.keys())
+	
+	# Handle case when different number of speakers
+	if len(gt_speakers) != len(proc_speakers):
+		logger.warning(f"Different number of speakers: GT has {len(gt_speakers)}, processor has {len(proc_speakers)}")
+		
+		# If processor detected fewer speakers, we can only match those
+		if len(proc_speakers) < len(gt_speakers):
+			# For each processor speaker, find best matching GT speaker
+			assigned_gt = set()
+			for proc_speaker in proc_speakers:
+				best_gt = None
+				best_distance = float('inf')
+				
+				for gt_speaker in gt_speakers:
+					if gt_speaker not in assigned_gt:
+						distance = min([distance_matrix[gt_speaker][proc_speaker] 
+									  for gt_speaker in gt_speakers 
+									  if gt_speaker not in assigned_gt])
+						
+						if distance < best_distance:
+							best_distance = distance
+							best_gt = gt_speaker
+				
+				matches.append((best_gt, proc_speaker))
+				assigned_gt.add(best_gt)
+		else:
+			# If processor detected more speakers, match each GT speaker to best processor speaker
+			assigned_proc = set()
+			for gt_speaker in gt_speakers:
+				best_proc = None
+				best_distance = float('inf')
+				
+				for proc_speaker in proc_speakers:
+					if proc_speaker not in assigned_proc:
+						distance = distance_matrix[gt_speaker][proc_speaker]
+						
+						if distance < best_distance:
+							best_distance = distance
+							best_proc = proc_speaker
+				
+				matches.append((gt_speaker, best_proc))
+				assigned_proc.add(best_proc)
+	else:
+		# When equal number of speakers, use Hungarian algorithm for optimal assignment
+		try:
+			from scipy.optimize import linear_sum_assignment
+			import numpy as np
+			
+			# Create cost matrix
+			cost_matrix = []
+			for gt_speaker in gt_speakers:
+				row = [distance_matrix[gt_speaker][proc_speaker] for proc_speaker in proc_speakers]
+				cost_matrix.append(row)
+			
+			# Apply Hungarian algorithm
+			row_ind, col_ind = linear_sum_assignment(np.array(cost_matrix))
+			
+			# Create matches based on the assignment
+			for i, j in zip(row_ind, col_ind):
+				matches.append((gt_speakers[i], proc_speakers[j]))
+		except ImportError:
+			# Fallback if scipy not available: greedy assignment
+			assigned_proc = set()
+			for gt_speaker in gt_speakers:
+				best_proc = None
+				best_distance = float('inf')
+				
+				for proc_speaker in proc_speakers:
+					if proc_speaker not in assigned_proc:
+						distance = distance_matrix[gt_speaker][proc_speaker]
+						
+						if distance < best_distance:
+							best_distance = distance
+							best_proc = proc_speaker
+				
+				matches.append((gt_speaker, best_proc))
+				assigned_proc.add(best_proc)
+	
+	return matches, distance_matrix
+
+
 def main():
 	logger.info("starting ...")
 	comparison_results = {} # collection of all the results
@@ -271,61 +377,46 @@ def main():
 			evaluation[processor]['speakers'] = processor_speakers
 			evaluation[processor]['num_speakers'] = len(processor_speakers)
 
-
+			# Find optimal speaker matches
+			speaker_matches, distance_matrix = find_best_speaker_matches(
+				gt_wsw_transcript, processor_wsw_transcript
+			)
+			
 			# make a wsw distance comparison by selecting the best two choices
-
-			if len(gt_speakers) != len(processor_speakers):
-				logger.warning("Different number of speakers detected (!) Skipping entire item from eval...")
-				transcripts_diffnum_speakers.append({
-					'transcript_id': transcript_id,
-					'title' : title,
-					'processor' : processor,
-					'gt_speakers' : gt_speakers,
-					'processor_speakers' : processor_speakers
-					})
-
-				# sometimes processor might not get 2 speakers, just 1, so how to evaluate that?
-				continue
-
-			else:
-				# processor_speakers = ['A', 'B']
-				# gt_speakers = ['therapist', 'client']
-				evaluation[processor]['wsw_distance'] = {}
-
-				for i in range(len(gt_speakers)):
-					logger.debug(f"gt_speaker index {i}")
-
-					gt_speaker = gt_speakers[i] # gt sspeaker
-					p_speaker = processor_speakers[i] # process
-					logger.info(f"GT Speaker {gt_speaker} and {processor} Speaker {p_speaker}")
-
-					gt_wsw_segment = gt_wsw_transcript[gt_speaker]
-					p_wsw_segment = processor_wsw_transcript[p_speaker]
-					logger.info("GT Segment:")
-					logger.info(gt_wsw_segment)
-
-					logger.info("Processor Segment:")
-					logger.info(p_wsw_segment)
-
-					wsw_distance = Levenshtein.distance(gt_wsw_segment, p_wsw_segment)
-					logger.info(f"WSW distance: {wsw_distance}")  # Output: 3
-
-					# Show word-level diff for debugging
-					diff = '\n'.join(unified_diff(
-						gt_wsw_segment.split(), 
-						p_wsw_segment.split(), 
-						fromfile='ground_truth', 
-						tofile='processor_output', 
-						lineterm=''
-					))
-					logger.debug(f"Text diff between GT and {processor}:\n{diff}")
-
-					evaluation[processor]['wsw_distance'][i] = {
-						'speaker_pair' : {
-											'gt_speaker': gt_speaker, 
-											'p_speaker': p_speaker},
-						'distance' : wsw_distance
-					}
+			# Now evaluate using the matched speakers
+			evaluation[processor]['wsw_distance'] = {}
+			evaluation[processor]['speaker_matches'] = []
+			
+			for i, (gt_speaker, p_speaker) in enumerate(speaker_matches):
+				logger.info(f"Matched: GT Speaker {gt_speaker} with {processor} Speaker {p_speaker}")
+				
+				gt_wsw_segment = gt_wsw_transcript[gt_speaker]
+				p_wsw_segment = processor_wsw_transcript[p_speaker]
+				
+				logger.info("GT Segment:")
+				logger.info(gt_wsw_segment)
+				logger.info("Processor Segment:")
+				logger.info(p_wsw_segment)
+				
+				wsw_distance = Levenshtein.distance(gt_wsw_segment, p_wsw_segment)
+				logger.info(f"WSW distance: {wsw_distance}")
+				
+				evaluation[processor]['wsw_distance'][i] = {
+					'speaker_pair': {
+						'gt_speaker': gt_speaker,
+						'p_speaker': p_speaker
+					},
+					'distance': wsw_distance
+				}
+				
+				evaluation[processor]['speaker_matches'].append({
+					'gt_speaker': gt_speaker,
+					'p_speaker': p_speaker,
+					'distance': wsw_distance
+				})
+			
+			# Also store the complete distance matrix for reference
+			evaluation[processor]['distance_matrix'] = distance_matrix
 
 
 		# push the eval object for all three processors to the result set
