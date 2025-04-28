@@ -303,9 +303,8 @@ def write_basic_output_to_disk(audio_path, results):
 	# make outfile name
 	os.makedirs('out', exist_ok = True)
 	basename = os.path.basename(audio_path)
-	outfile = f"out/out_opensource_basic_{basename}.txt"
+	outfile = f"out/{basename}_opensource_basic.txt"
 	with open(outfile, 'w', encoding='utf-8') as f:
-
 		for i in results:
 			string = f"({i['utterance_segment_id']}:{i['utterance_subsegment_id']}) ({i['utterance_start']:.3f}-{i['utterance_end']:.3f}) ({i['assigned_speaker']}) ({i['utterance_text']})"
 			logger.debug(string)
@@ -313,7 +312,7 @@ def write_basic_output_to_disk(audio_path, results):
 
 def write_diarized_output_to_disk(audio_path, diarized_group):
 	basename = os.path.basename(audio_path)
-	outfile = f"out/out_opensource_diarized_group_{basename}.txt"
+	outfile = f"out/{basename}_opensource_diarized_group.txt"
 	with open(outfile, 'w', encoding='utf-8') as f:
 
 		for speaker, texts in diarized_group.items():
@@ -321,7 +320,7 @@ def write_diarized_output_to_disk(audio_path, diarized_group):
 
 def write_transcript_to_disk(audio_path, transcript):
 	basename = os.path.basename(audio_path)
-	outfile = f"out/out_opensource_transript_{basename}.txt"
+	outfile = f"out/{basename}_opensource_transript.txt"
 	with open(outfile, 'w', encoding='utf-8') as f:
 		f.write(f"{transcript}")
 

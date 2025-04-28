@@ -214,7 +214,7 @@ def main():
 	sampled_transcripts = random.sample(transcripts_to_sample, num_to_sample)
 	logger.info(f"Transcripts to be sampled: {sampled_transcripts}")
 
-	has_narrator = [34, 67, 132, 7, 123, 129]
+	has_narrator = [34, 67, 132, 7, 123, 129, 109]
 	filtered_transcripts = list(set(sampled_transcripts) - set(has_narrator))
 	sampled_transcripts = filtered_transcripts # rename for laziness
 	logger.info(f"Filtered transcripts (no narrator): {sampled_transcripts}")

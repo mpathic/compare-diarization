@@ -68,9 +68,9 @@ def process(audio_file):
 	# make outfile names
 	os.makedirs('out', exist_ok = True)
 	basename = os.path.basename(audio_file)
-	outfile_basic = f"out/out_assemblyai_basic_{basename}.txt"
-	outfile_transcript = f"out/out_assemblyai_transcript_{basename}.txt"
-	outfile_diarized = f"out/out_assemblyai_diarized_group_{basename}.txt"
+	outfile_basic = f"out/{basename}_assemblyai_basic.txt"
+	outfile_transcript = f"out/{basename}_assemblyai_transcript.txt"
+	outfile_diarized = f"out/{basename}_assemblyai_diarized_group.txt"
 
 	aai.settings.api_key = os.environ.get('AAI_KEY')
 	config = aai.TranscriptionConfig(

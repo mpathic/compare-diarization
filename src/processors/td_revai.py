@@ -80,9 +80,9 @@ def save_revai_diarized_output(transcript, output_path='revai_diarized_transcrip
 
 def write_outputs(transcript_utterances, basename):
 	os.makedirs('out', exist_ok = True)
-	outfile_basic = f"out/out_revai_basic_{basename}.txt"
-	outfile_transcript = f"out/out_revai_transcript_{basename}.txt"
-	outfile_diarized = f"out/out_revai_diarized_group_{basename}.txt"
+	outfile_basic = f"out/{basename}_revai_basic.txt"
+	outfile_transcript = f"out/{basename}_revai_transcript.txt"
+	outfile_diarized = f"out/{basename}_revai_diarized_group.txt"
 
 	save_revai_basic_output(transcript_utterances, outfile_basic)
 	save_revai_transcript_output(transcript_utterances, outfile_transcript)
