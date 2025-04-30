@@ -326,11 +326,11 @@ def main():
 	i=1
 	for transcript_id in filtered_transcripts:
 
-		if transcript_id in missing_audio: 
+		if int(transcript_id) in missing_audio: 
 			continue
-		elif transcript_id in has_narrator:
+		elif int(transcript_id) in has_narrator:
 			continue 
-			
+
 		logger.info(f"Starting to process transcript {transcript_id} ...")
 		logger.info(f"\t item {i} / {len(filtered_transcripts)}:")
 		i+=1
