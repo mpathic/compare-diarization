@@ -327,11 +327,6 @@ def write_transcript_to_disk(audio_path, transcript):
 
 def process(audio_path):
 	logger.info("Starting Open Source method")
-
-	device = "cuda" if torch.cuda.is_available() else "cpu"
-	logger.info(f"Using device: {device}")
-
-	
 	#
 	# Setup
 	# 
@@ -346,15 +341,15 @@ def process(audio_path):
 	# Load the Whisper model for transcription
 	logger.info(f"Loading Whisper model size: {whisp_model}")
 	logger.debug(f"whisper version: {whisper.__version__}")
-	whisper_model = whisper.load_model(whisp_model, device=device)
+	whisper_model = whisper.load_model(whisp_model)
 
 	# load diarization
 	logger.debug(f"Loading Diarization model: {diarize_model}")
-	diarization_model = Pipeline.from_pretrained(diarize_model, use_auth_token=os.environ.get('HF_TOKEN')).to(torch.device(device))
+	diarization_model = Pipeline.from_pretrained(diarize_model, use_auth_token=os.environ.get('HF_TOKEN'))
 
 	# load vad
 	logger.debug(f"Loading Diarization model: {vad_model}")
-	vad_model = Pipeline.from_pretrained(vad_model, use_auth_token=os.environ.get('HF_TOKEN')).to(torch.device(device))
+	vad_model = Pipeline.from_pretrained(vad_model, use_auth_token=os.environ.get('HF_TOKEN'))
 
 	# get some basic stats about the file
 	logger.info(f"Processing audio file: {audio_path}")

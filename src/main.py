@@ -7,10 +7,6 @@ import time
 import csv
 import random
 import numpy as np
-import torch
-import librosa
-import soundfile as sf # <-- Added for saving trimmed audio
-from pydub import AudioSegment # <-- Added for robust audio handling
 
 from dotenv import load_dotenv
 load_dotenv() # load ennvars from .env file
@@ -18,11 +14,9 @@ load_dotenv() # load ennvars from .env file
 from src.s3_fh import s3_download_files
 from src.processors import td_revai, td_assemblyai, td_opensource
 from src.download_videos import download
-from src.accent_detector import AccentDetector
 
 import Levenshtein
 from difflib import unified_diff
-import editdistance
 
 
 ## USAGE (from root directory of project):
@@ -36,28 +30,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def get_device():
-	"""
-	Detect and return the best available device (CUDA GPU if available, else CPU).
-	"""
-	if torch.cuda.is_available():
-		device = torch.device('cuda')
-		gpu_name = torch.cuda.get_device_name(0)
-		gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # Convert to GB
-		logger.info(f"CUDA is available! Using GPU: {gpu_name}")
-		logger.info(f"GPU Memory: {gpu_memory:.1f} GB")
-		logger.info(f"CUDA Version: {torch.version.cuda}")
-		return device
-	else:
-		logger.info("CUDA is not available. Using CPU.")
-		return torch.device('cpu')
-
 
 def process_audio(audio_file):
 	logger.info("Starting Audio Processors ...")
 
 	results = {
-		'revai' : td_revai.process(audio_file),          # do revai
+		'revai' : td_revai.process(audio_file),           # do revai
 		'assemblyai' : td_assemblyai.process(audio_file), # do aai
 		'opensource' : td_opensource.process(audio_file)  # do open source
 	}
@@ -68,234 +46,183 @@ def process_audio(audio_file):
 
 def calculate_wer(reference, hypothesis):
 	"""
-	Calculate standard Word Error Rate (WER) using word-level Levenshtein distance.
-
-	WER = (S + D + I) / N
-	where:
-	- S = substitutions
-	- D = deletions
-	- I = insertions
-	- N = number of words in reference
-
+	Calculate Word Error Rate (WER): Levenshtein distance normalized by reference length.
+	
 	Args:
 		reference (str): The ground truth text
 		hypothesis (str): The predicted text from processor
-
+		
 	Returns:
-		dict: Contains WER and detailed error breakdown
+		float: WER value (between 0 and potentially > 1.0)
 	"""
-	# Tokenize into words and normalize
-	ref_words = reference.lower().strip().split()
-	hyp_words = hypothesis.lower().strip().split()
+	# Calculate Levenshtein distance
+	distance = Levenshtein.distance(reference, hypothesis)
+	
+	# Count words in reference
+	ref_word_count = len(reference.split())
+	
+	# Avoid division by zero
+	if ref_word_count == 0:
+		return float('inf')
+	
+	# Calculate WER
+	wer = distance / ref_word_count
+	
+	return wer
 
-	# Handle empty cases
-	if len(ref_words) == 0:
-		if len(hyp_words) == 0:
-			return {
-				'wer': 0.0, 'substitutions': 0, 'insertions': 0,
-				'deletions': 0, 'ref_length': 0, 'hyp_length': 0,
-				'total_errors': 0
-			}
-		else:
-			return {
-				'wer': float('inf'), 'substitutions': 0, 'insertions': len(hyp_words),
-				'deletions': 0, 'ref_length': 0, 'hyp_length': len(hyp_words),
-				'total_errors': len(hyp_words)
-			}
 
-	# Initialize the distance matrix for dynamic programming
+def calculate_word_level_wer(reference, hypothesis):
+	"""
+	Calculate true Word Error Rate (WER) based on word-level edit operations.
+	
+	Args:
+		reference (str): The ground truth text
+		hypothesis (str): The predicted text from processor
+		
+	Returns:
+		dict: Contains detailed WER metrics including:
+			- total WER 
+			- count of substitutions, insertions, deletions
+			- WER components (sub_rate, ins_rate, del_rate)
+	"""
+	# Tokenize into words
+	ref_words = reference.lower().split()
+	hyp_words = hypothesis.lower().split()
+	
+	# Initialize the distance matrix
 	d = np.zeros((len(ref_words) + 1, len(hyp_words) + 1), dtype=np.int32)
-
-	# Initialize first row and column (deletion and insertion costs)
+	
+	# Initialize first row and column
 	for i in range(len(ref_words) + 1):
-		d[i, 0] = i  # deletions
+		d[i, 0] = i
 	for j in range(len(hyp_words) + 1):
-		d[0, j] = j  # insertions
-
-	# Fill the distance matrix
+		d[0, j] = j
+	
+	# Calculate minimum edit operations
 	for i in range(1, len(ref_words) + 1):
 		for j in range(1, len(hyp_words) + 1):
 			if ref_words[i-1] == hyp_words[j-1]:
-				d[i, j] = d[i-1, j-1]  # Match, no cost
+				d[i, j] = d[i-1, j-1]  # Match
 			else:
-				# Take minimum of three operations
-				substitution = d[i-1, j-1] + 1
-				insertion = d[i, j-1] + 1
-				deletion = d[i-1, j] + 1
-				d[i, j] = min(substitution, insertion, deletion)
-
+				# Get min of three operations
+				subst = d[i-1, j-1] + 1  # Substitution
+				ins = d[i, j-1] + 1      # Insertion
+				dele = d[i-1, j] + 1     # Deletion
+				d[i, j] = min(subst, ins, dele)
+	
 	# Backtrack to count each operation type
 	i, j = len(ref_words), len(hyp_words)
 	substitutions, insertions, deletions = 0, 0, 0
-
+	
 	while i > 0 or j > 0:
 		if i > 0 and j > 0 and ref_words[i-1] == hyp_words[j-1]:
+			# Match - move diagonal
 			i, j = i-1, j-1
 		elif i > 0 and j > 0 and d[i, j] == d[i-1, j-1] + 1:
+			# Substitution
 			substitutions += 1
 			i, j = i-1, j-1
 		elif j > 0 and d[i, j] == d[i, j-1] + 1:
+			# Insertion
 			insertions += 1
 			j = j-1
 		elif i > 0 and d[i, j] == d[i-1, j] + 1:
+			# Deletion
 			deletions += 1
 			i = i-1
 		else:
-			break
-
+			# Should not happen
+			i, j = i-1, j-1
+	
 	# Calculate metrics
 	ref_len = len(ref_words)
-	total_errors = substitutions + insertions + deletions
-	wer = total_errors / ref_len if ref_len > 0 else float('inf')
-
+	word_level_distance = substitutions + insertions + deletions
+	
+	if ref_len > 0:
+		wer = word_level_distance / ref_len
+		sub_rate = substitutions / ref_len if substitutions > 0 else 0
+		ins_rate = insertions / ref_len if insertions > 0 else 0
+		del_rate = deletions / ref_len if deletions > 0 else 0
+	else:
+		wer, sub_rate, ins_rate, del_rate = float('inf'), 0, 0, 0
+	
 	return {
-		'wer': wer, 'substitutions': substitutions, 'insertions': insertions,
-		'deletions': deletions, 'ref_length': ref_len, 'hyp_length': len(hyp_words),
-		'total_errors': total_errors
+		'wer': wer,
+		'substitutions': substitutions,
+		'insertions': insertions,
+		'deletions': deletions,
+		'sub_rate': sub_rate,
+		'ins_rate': ins_rate,
+		'del_rate': del_rate,
+		'ref_length': ref_len,
+		'word_level_distance': word_level_distance
 	}
 
-
-def find_optimal_speaker_assignment(gt_speakers_data, hyp_speakers_data):
-	"""
-	Find optimal speaker assignment for cpWER calculation.
-	Uses Hungarian algorithm if available, otherwise greedy assignment.
-	"""
-	gt_speakers = list(gt_speakers_data.keys())
-	hyp_speakers = list(hyp_speakers_data.keys())
-
-	if not gt_speakers or not hyp_speakers:
-		return [], {}
-
-	cost_matrix = {}
-	for gt_speaker in gt_speakers:
-		cost_matrix[gt_speaker] = {}
-		for hyp_speaker in hyp_speakers:
-			gt_text = gt_speakers_data[gt_speaker]
-			hyp_text = hyp_speakers_data.get(hyp_speaker, "") # Handle missing speaker in hypothesis
-			wer_result = calculate_wer(gt_text, hyp_text)
-			cost_matrix[gt_speaker][hyp_speaker] = wer_result['wer']
-
-	try:
-		from scipy.optimize import linear_sum_assignment
-		num_cost_matrix = np.array([[cost_matrix[gt][hyp] for hyp in hyp_speakers] for gt in gt_speakers])
-		row_ind, col_ind = linear_sum_assignment(num_cost_matrix)
-		assignments = [(gt_speakers[r], hyp_speakers[c]) for r, c in zip(row_ind, col_ind)]
-	except ImportError:
-		logger.warning("scipy not available, using greedy assignment for cpWER")
-		assignments = []
-		used_hyp = set()
-		for gt_speaker in sorted(gt_speakers, key=lambda g: min(cost_matrix[g].values())):
-			best_hyp, min_cost = None, float('inf')
-			for hyp_speaker, cost in cost_matrix[gt_speaker].items():
-				if hyp_speaker not in used_hyp and cost < min_cost:
-					min_cost, best_hyp = cost, hyp_speaker
-			if best_hyp:
-				assignments.append((gt_speaker, best_hyp))
-				used_hyp.add(best_hyp)
-
-	return assignments, cost_matrix
-
-
-def calculate_cpwer(gt_speakers_data, hyp_speakers_data):
-	"""
-	Calculate concatenated minimum-permutation Word Error Rate (cpWER).
-	"""
-	if not gt_speakers_data:
-		return {'cpwer': float('inf'), 'assignments': [], 'speaker_wers': {},
-				'total_ref_words': 0, 'total_errors': sum(len(t.split()) for t in hyp_speakers_data.values())}
-
-	assignments, cost_matrix = find_optimal_speaker_assignment(gt_speakers_data, hyp_speakers_data)
-	total_ref_words, total_errors = 0, 0
-	speaker_wers = {}
-
-	# Matched speakers
-	hyp_speakers_assigned = set()
-	for gt_speaker, hyp_speaker in assignments:
-		gt_text = gt_speakers_data[gt_speaker]
-		hyp_text = hyp_speakers_data[hyp_speaker]
-		wer_result = calculate_wer(gt_text, hyp_text)
-		speaker_wers[f"{gt_speaker} -> {hyp_speaker}"] = wer_result
-		total_ref_words += wer_result['ref_length']
-		total_errors += wer_result['total_errors']
-		hyp_speakers_assigned.add(hyp_speaker)
-
-	# Unmatched GT speakers (deletions)
-	for gt_speaker in set(gt_speakers_data.keys()) - {g for g, h in assignments}:
-		ref_len = len(gt_speakers_data[gt_speaker].split())
-		total_ref_words += ref_len
-		total_errors += ref_len
-		speaker_wers[f"{gt_speaker} -> UNMATCHED"] = {'wer': 1.0, 'total_errors': ref_len, 'ref_length': ref_len}
-
-	# Unmatched hypothesis speakers (insertions)
-	for hyp_speaker in set(hyp_speakers_data.keys()) - hyp_speakers_assigned:
-		hyp_len = len(hyp_speakers_data[hyp_speaker].split())
-		total_errors += hyp_len
-		speaker_wers[f"UNMATCHED -> {hyp_speaker}"] = {'wer': float('inf'), 'total_errors': hyp_len, 'ref_length': 0}
-
-	cpwer = total_errors / total_ref_words if total_ref_words > 0 else float('inf')
-
-	return {
-		'cpwer': cpwer, 'assignments': assignments, 'speaker_wers': speaker_wers,
-		'total_ref_words': total_ref_words, 'total_errors': total_errors,
-		'cost_matrix': cost_matrix
-	}
-
-def timestamp_to_seconds(ts_str):
-    """Converts HH:MM:SS timestamp string to seconds."""
-    parts = ts_str.split(':')
-    return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
 
 def load_ground_truth(gt_filepath):
 	logger.info("Reading GT metadata and importing ground truth data (deduplicating utterances)...")
 	transcripts = {}
 	processed_utterances = set() # Keep track of (transcript_id, utterance_id) pairs
-	
+
 	try:
 		with open(gt_filepath, 'r', encoding='utf-8') as file:
 			csv_reader = csv.DictReader(file)
-			
-			# Store rows to process after finding the first utterance for each transcript
-			rows = list(csv_reader)
 
-			for row in rows:
-				transcript_id = row.get('transcript_id')
-				utterance_id_str = row.get('utterance_id')
+			for i, row in enumerate(csv_reader):
+				try:
+					transcript_id = row.get('transcript_id')
+					utterance_id_str = row.get('utterance_id')
 
-				if not transcript_id or not utterance_id_str:
-					continue
-				
-				# Initialize transcript entry if new
-				if transcript_id not in transcripts:
-					transcripts[transcript_id] = {
-						'transcript_id' : transcript_id,
-						'video_title' : row.get('video_title', 'N/A'),
-						'video_url' : row.get('video_url', 'N/A'),
-						'mi_quality' : row.get('mi_quality', 'N/A'),
-						'all_utterances' : [],
-						'who_said_what' : {},
-						'start_time_seconds': 0.0 # Default start time
-					}
-				
-				# *** NEW: Capture the start time from the first utterance ***
-				if utterance_id_str == '0':
-					timestamp = row.get('timestamp')
-					if timestamp:
-						transcripts[transcript_id]['start_time_seconds'] = timestamp_to_seconds(timestamp)
-						logger.info(f"Transcript {transcript_id} has a start time of {transcripts[transcript_id]['start_time_seconds']}s")
+					# Basic validation
+					if not transcript_id or utterance_id_str is None:
+						logger.warning(f"Row {i+1}: Missing transcript_id or utterance_id. Skipping.")
+						continue
 
-				# --- Deduplication and data aggregation ---
-				utterance_key = (transcript_id, int(utterance_id_str))
-				if utterance_key in processed_utterances:
-					continue
-				processed_utterances.add(utterance_key)
+					try:
+						utterance_id = int(utterance_id_str)
+					except ValueError:
+						logger.warning(f"Row {i+1}: Invalid utterance_id '{utterance_id_str}'. Skipping.")
+						continue
 
-				speaker = row.get('interlocutor', 'Unknown')
-				text = row.get('utterance_text', '').strip()
+					# --- Deduplication Check ---
+					utterance_key = (transcript_id, utterance_id)
+					if utterance_key in processed_utterances:
+						logger.debug(f"Row {i+1}: Duplicate utterance {utterance_key}. Skipping text append.")
+						continue
 
-				transcripts[transcript_id]['all_utterances'].append(text)
-				if speaker not in transcripts[transcript_id]['who_said_what']:
-					transcripts[transcript_id]['who_said_what'][speaker] = []
-				transcripts[transcript_id]['who_said_what'][speaker].append(text)
+					processed_utterances.add(utterance_key)
+					# --------------------------
+
+					video_title = row.get('video_title', 'N/A')
+					video_url = row.get('video_url', 'N/A')
+					mi_quality = row.get('mi_quality', 'N/A')
+					speaker = row.get('interlocutor', 'Unknown')
+					text = row.get('utterance_text', '').strip()
+
+					# Initialize transcript entry if it's the first time seeing this transcript_id
+					if transcript_id not in transcripts:
+						logger.debug(f"Adding gt video {video_url}:{video_title}...")
+						transcripts[transcript_id] = {
+							'transcript_id' : transcript_id,
+							'video_title' : video_title,
+							'video_url' : video_url,
+							'mi_quality' : mi_quality,
+							'all_utterances' : [],
+							'who_said_what' : {}
+						}
+
+					# Append utterance text (only happens if not a duplicate key)
+					transcripts[transcript_id]['all_utterances'].append(text)
+
+					# Append speaker-specific text
+					if speaker not in transcripts[transcript_id]['who_said_what']:
+						transcripts[transcript_id]['who_said_what'][speaker] = []
+					transcripts[transcript_id]['who_said_what'][speaker].append(text)
+
+				except KeyError as e:
+					 logger.error(f"Row {i+1}: Missing expected column key: {e}. Check CSV header.")
+				except Exception as e:
+					 logger.error(f"Row {i+1}: Unexpected error processing row: {e}")
 
 	except FileNotFoundError:
 		logger.error(f"Error: File not found at {gt_filepath}")
@@ -307,193 +234,435 @@ def load_ground_truth(gt_filepath):
 	# Consolidate texts
 	logger.info("Consolidating transcript texts...")
 	for transcript_id, item in transcripts.items():
-		item['transcript'] = ' '.join(item['all_utterances'])
+		# Sort utterances? If the CSV isn't guaranteed to be sorted by utterance_id,
+		# might want to store (utterance_id, text) tuples and sort before joining.
+		# For now, assuming order is preserved or OK as is.
+		text_paragraph = ' '.join(item['all_utterances'])
+		transcripts[transcript_id]['transcript'] = text_paragraph # continuous transcript
+
 		for speaker, their_texts in item['who_said_what'].items():
-			item['who_said_what'][speaker] = ' '.join(their_texts)
+			transcripts[transcript_id]['who_said_what'][speaker] = ' '.join(their_texts) # overwrite with consolidated text
 
 	logger.info("Done importing and deduplicating ground truth data.")
 	return transcripts
 
-def count_speaker_accuracy(gt_num_speakers, hyp_num_speakers):
-    return {
-        'gt_speaker_count': gt_num_speakers,
-        'hyp_speaker_count': hyp_num_speakers,
-        'speaker_count_error': abs(gt_num_speakers - hyp_num_speakers),
-        'speaker_count_correct': gt_num_speakers == hyp_num_speakers,
-        'speaker_count_error_rate': abs(gt_num_speakers - hyp_num_speakers) / max(gt_num_speakers, 1)
-    }
 
 def write_results_to_file(results, output_filepath='out/evaluation_results.json'):
-	os.makedirs(os.path.dirname(output_filepath), exist_ok=True)
-	with open(output_filepath, 'w', encoding='utf-8') as f:
-		json.dump(results, f, indent=4)
-	logger.info(f"Results successfully written to {output_filepath}")
+	"""
+	Writes comparison results to a JSON file on disk.
+	"""
+	logger.info(f"Writing results to {output_filepath}...")
+	try:
+		with open(output_filepath, 'w', encoding='utf-8') as f:
+			json.dump(results, f, indent=4)
+		logger.info(f"Results successfully written to {output_filepath}")
+		return output_filepath
+	except Exception as e:
+		logger.error(f"Error writing results to file: {e}")
+		return None
 
-def append_result_to_file(transcript_id, evaluation, output_filepath='out/evaluation_results_with_wer_cpwer.json'):
-	os.makedirs(os.path.dirname(output_filepath), exist_ok=True)
-	results = {}
-	if os.path.exists(output_filepath) and os.path.getsize(output_filepath) > 0:
-		with open(output_filepath, 'r', encoding='utf-8') as f:
-			try:
-				results = json.load(f)
-			except json.JSONDecodeError:
-				logger.warning(f"Could not parse existing results file at {output_filepath}. Starting fresh.")
+
+def append_result_to_file(transcript_id, evaluation, output_filepath='out/evaluation_results_with_wer.json'):
+	"""
+	Appends a single transcript's evaluation result to the output file.
+	Creates the file if it doesn't exist yet.
 	
-	results[transcript_id] = evaluation
-	with open(output_filepath, 'w', encoding='utf-8') as f:
-		json.dump(results, f, indent=4)
+	Args:
+		transcript_id: The ID of the transcript
+		evaluation: The evaluation results for this transcript
+		output_filepath: Where to save the results
+	"""
+	logger.info(f"Appending result for transcript {transcript_id} to {output_filepath}...")
+	
+	# Ensure directory exists
+	os.makedirs(os.path.dirname(output_filepath), exist_ok=True)
+	
+	try:
+		# Load existing results if file exists
+		results = {}
+		if os.path.exists(output_filepath) and os.path.getsize(output_filepath) > 0:
+			with open(output_filepath, 'r', encoding='utf-8') as f:
+				try:
+					results = json.load(f)
+				except json.JSONDecodeError:
+					logger.warning(f"Could not parse existing results file. Starting fresh.")
+		
+		# Add new result
+		results[transcript_id] = evaluation
+		
+		# Write updated results back to file
+		with open(output_filepath, 'w', encoding='utf-8') as f:
+			json.dump(results, f, indent=4)
+			
+		logger.info(f"Successfully appended result for transcript {transcript_id}")
+		return output_filepath
+	except Exception as e:
+		logger.error(f"Error appending result to file: {e}")
+		return None
 
-def trim_audio(input_path, output_path, start_sec):
-    """Trims audio file from start_sec to the end and saves as WAV."""
-    logger.info(f"Trimming audio file '{input_path}' from {start_sec} seconds.")
-    try:
-        # Using pydub for robust format handling, then librosa for processing
-        audio = AudioSegment.from_file(input_path)
-        # pydub uses milliseconds
-        trimmed_audio = audio[start_sec * 1000:]
-        # Export as a temporary WAV file for librosa/soundfile
-        trimmed_audio.export(output_path, format="wav")
-        logger.info(f"Trimmed audio saved to '{output_path}'")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to trim audio file {input_path}: {e}")
-        return False
+
+def find_best_speaker_matches(gt_wsw_transcript, processor_wsw_transcript):
+	"""
+	Find the best matching pairs between ground truth speakers and processor speakers
+	based on text similarity (Levenshtein distance)
+	
+	Args:
+		gt_wsw_transcript: Dictionary of {speaker: text} from ground truth
+		processor_wsw_transcript: Dictionary of {speaker: text} from processor
+		
+	Returns:
+		list of tuples: [(gt_speaker, processor_speaker), ...]
+	"""
+	matches = []
+	distance_matrix = {}
+	
+	# Calculate distance between each pair of speakers
+	for gt_speaker, gt_text in gt_wsw_transcript.items():
+		distance_matrix[gt_speaker] = {}
+		for proc_speaker, proc_text in processor_wsw_transcript.items():
+			distance = Levenshtein.distance(gt_text, proc_text)
+			distance_matrix[gt_speaker][proc_speaker] = distance
+	
+	# Assign each ground truth speaker to best matching processor speaker
+	gt_speakers = list(gt_wsw_transcript.keys())
+	proc_speakers = list(processor_wsw_transcript.keys())
+	
+	# Handle case when different number of speakers
+	if len(gt_speakers) != len(proc_speakers):
+		logger.warning(f"Different number of speakers: GT has {len(gt_speakers)}, processor has {len(proc_speakers)}")
+		
+		# If processor detected fewer speakers, we can only match those
+		if len(proc_speakers) < len(gt_speakers):
+			# For each processor speaker, find best matching GT speaker
+			assigned_gt = set()
+			for proc_speaker in proc_speakers:
+				best_gt = None
+				best_distance = float('inf')
+				
+				for gt_speaker in gt_speakers:
+					if gt_speaker not in assigned_gt:
+						distance = min([distance_matrix[gt_speaker][proc_speaker] 
+									  for gt_speaker in gt_speakers 
+									  if gt_speaker not in assigned_gt])
+						
+						if distance < best_distance:
+							best_distance = distance
+							best_gt = gt_speaker
+				
+				matches.append((best_gt, proc_speaker))
+				assigned_gt.add(best_gt)
+		else:
+			# If processor detected more speakers, match each GT speaker to best processor speaker
+			assigned_proc = set()
+			for gt_speaker in gt_speakers:
+				best_proc = None
+				best_distance = float('inf')
+				
+				for proc_speaker in proc_speakers:
+					if proc_speaker not in assigned_proc:
+						distance = distance_matrix[gt_speaker][proc_speaker]
+						
+						if distance < best_distance:
+							best_distance = distance
+							best_proc = proc_speaker
+				
+				matches.append((gt_speaker, best_proc))
+				assigned_proc.add(best_proc)
+	else:
+		# When equal number of speakers, use Hungarian algorithm for optimal assignment
+		try:
+			from scipy.optimize import linear_sum_assignment
+			import numpy as np
+			
+			# Create cost matrix
+			cost_matrix = []
+			for gt_speaker in gt_speakers:
+				row = [distance_matrix[gt_speaker][proc_speaker] for proc_speaker in proc_speakers]
+				cost_matrix.append(row)
+			
+			# Apply Hungarian algorithm
+			row_ind, col_ind = linear_sum_assignment(np.array(cost_matrix))
+			
+			# Create matches based on the assignment
+			for i, j in zip(row_ind, col_ind):
+				matches.append((gt_speakers[i], proc_speakers[j]))
+		except ImportError:
+			# Fallback if scipy not available: greedy assignment
+			assigned_proc = set()
+			for gt_speaker in gt_speakers:
+				best_proc = None
+				best_distance = float('inf')
+				
+				for proc_speaker in proc_speakers:
+					if proc_speaker not in assigned_proc:
+						distance = distance_matrix[gt_speaker][proc_speaker]
+						
+						if distance < best_distance:
+							best_distance = distance
+							best_proc = proc_speaker
+				
+				matches.append((gt_speaker, best_proc))
+				assigned_proc.add(best_proc)
+	
+	return matches, distance_matrix
+
 
 def main():
 	logger.info("starting ...")
-	comparison_results = {}
-	output_filepath = 'out/evaluation_results_with_wer_cpwer.json'
+	comparison_results = {} # collection of all the results
+
+	# Create output directory if it doesn't exist
+	output_filepath = 'out/evaluation_results_with_wer.json'
 	os.makedirs(os.path.dirname(output_filepath), exist_ok=True)
-	with open(output_filepath, 'w') as f: json.dump({}, f)
+	
+	# If file exists, clear it to start fresh
+	with open(output_filepath, 'w', encoding='utf-8') as f:
+		json.dump({}, f)
+	
+	# load the ground truth transcripts
+	ground_truth_filepath = 'evaluation_data/AnnoMI-full-export-ground-truth.csv'
+	ground_truth = load_ground_truth(ground_truth_filepath)
 
-	accent_detector = AccentDetector(device=get_device())
-	ground_truth = load_ground_truth('evaluation_data/AnnoMI-full-export-ground-truth.csv')
-
+	# for simplicity and compute sake, only sample a few of the transcripts
 	transcripts_to_sample = list(ground_truth.keys())
+
 	random.seed(42)
 	num_to_sample = int(len(transcripts_to_sample) * 0.33)
 	sampled_transcripts = random.sample(transcripts_to_sample, num_to_sample)
 	logger.info(f"Transcripts to be sampled: {sampled_transcripts}")
 
-	missing_audio = {"89"}
-	# has_narrator = {"0", "1", "2", "7", "15", "16", "24", "34", "44", "63", "67", "72", "99", "106", "109", "112", "123", "129"}
-	bad_annotation = {"3", "11", "14"}
-	already_reviewed = {"4", "5", "8", "9", "10", "12", "13", "17"}
+	missing_audio = ["89"]  # String format for consistency
+	has_narrator = ["0", "24", "34", "44", "63", "67", "72", "99", "106", "109", "112", "123", "129"]
+	accent_is_british = ["16", "64", "65", "84", "117", "118", "131"]
+	accent_is_southern_us = ["3", "57", "59", "103"]
 
-	# *** MODIFIED: No longer filtering out videos with narrators ***
-	filtered_transcripts = {
-		str(tid) for tid in sampled_transcripts
-		if str(tid) not in missing_audio
-		and str(tid) not in bad_annotation
-	}
-	logger.info(f"Total transcripts to process after filtering: {len(filtered_transcripts)}")
-	approved_set = filtered_transcripts & already_reviewed
-	uncategorized_set = filtered_transcripts - already_reviewed
+	# Convert all lists to sets of strings for consistent comparison
+	missing_audio_set = set(missing_audio)
+	has_narrator_set = set(has_narrator)
+	
+	# Filter out both narrator and missing IDs
+	filtered_transcripts = [tid for tid in sampled_transcripts 
+						   if str(tid) not in missing_audio_set and str(tid) not in has_narrator_set]
+	
+	logger.info(f"Filtered transcripts (no narrator, no missing audio): {filtered_transcripts}")
+	
+	# Log the British and Southern accent IDs for reference
+	british_in_filtered = [tid for tid in filtered_transcripts if str(tid) in set(accent_is_british)]
+	southern_in_filtered = [tid for tid in filtered_transcripts if str(tid) in set(accent_is_southern_us)]
+	logger.info(f"British accent IDs in filtered set: {british_in_filtered}")
+	logger.info(f"Southern accent IDs in filtered set: {southern_in_filtered}")
 
-	# log them
-	logger.info(f"Approved ({len(approved_set)}): {approved_set.sorted()}")
-	logger.info(f"Uncategorized (to be reviewed) ({len(uncategorized_set)}): {sorted(uncategorized_set)}")
+	# download the audio files locally in the project
+	audio_filepaths = s3_download_files(filtered_transcripts) # {transcript_id : filepath}
 
+	logger.debug("Pulled the following files from S3:")
+	for k,v in audio_filepaths.items():
+		logger.debug(f"{k} : {v}")
 
-	#
-	# PROCESS THE LIST OF FILES
-	#
-	audio_filepaths = s3_download_files(filtered_transcripts)
-	transcripts_speaker_count_errors = []
+	# collect the transcript ids with narrators etc:
+	transcripts_diffnum_speakers = []
 
-	for i, transcript_id in enumerate(filtered_transcripts, 1):
-		logger.info(f"--- Processing transcript {transcript_id} ({i}/{len(filtered_transcripts)}) ---")
+	# iterate over each transcript_id
+	i=1
+	for transcript_id in filtered_transcripts:
+		# Double check that we're not processing excluded IDs
+		if str(transcript_id) in missing_audio_set or str(transcript_id) in has_narrator_set:
+			logger.warning(f"Skipping transcript {transcript_id} that should have been filtered.")
+			continue
 
+		logger.info(f"Starting to process transcript {transcript_id} ...")
+		logger.info(f"\t item {i} / {len(filtered_transcripts)}:")
+		i+=1
+
+		# parse audio info
 		audio_info = audio_filepaths[transcript_id]
-		original_audio_filepath = audio_info['filepath']
+		audio_filepath = audio_info['filepath']
 		audio_duration = audio_info['duration']
-		
+
+		# parse ground truth info
 		transcript_info = ground_truth[transcript_id]
 		title = transcript_info['video_title']
-		start_time = transcript_info.get('start_time_seconds', 0.0)
+		logger.info(f"Title: {title}:")
+
+		gt_speakers = list(transcript_info['who_said_what'].keys())
+		gt_transcript = transcript_info['transcript'] # continuous transcript
+		gt_wsw_transcript = transcript_info['who_said_what'] # whosaidwhat transcript
 		
-		evaluation = {
-			'audio_duration': audio_duration,
-			'audio_duration_minutes': audio_duration / 60.0,
-			'gt_speakers': list(transcript_info['who_said_what'].keys()),
-			'gt_num_speakers': len(transcript_info['who_said_what'].keys()),
-			'downloaded_filepath': original_audio_filepath,
-			'has_narrator': str(transcript_id) in has_narrator,
-			'processing_start_time_sec': start_time
-		}
+		evaluation = {} # make a new one
+		evaluation['audio_duration'] = audio_duration
+		evaluation['gt_speakers'] = gt_speakers
+		evaluation['gt_num_speakers'] = len(gt_speakers)
+		evaluation['downloaded_filepath'] = audio_filepath # keep track of its path
 
-		# Accent Detection (runs on the full original audio)
-		try:
-			detected_accents = accent_detector.detect_accent(original_audio_filepath)
-			evaluation['accent_detection'] = detected_accents
-			evaluation['model_accent'] = detected_accents.get('primary_prediction', 'Unknown')
-		except Exception as e:
-			logger.warning(f"Accent detection failed for {transcript_id}: {e}")
-			evaluation['accent_detection'] = {"error": str(e)}
-			evaluation['model_accent'] = 'Unknown'
+		evaluation['has_narrator'] = False
+		if str(transcript_id) in has_narrator_set:
+			evaluation['has_narrator'] = True
 
-		gt_transcript = transcript_info['transcript']
-		gt_wsw_transcript = transcript_info['who_said_what']
-		evaluation['gt_word_count'] = len(gt_transcript.split())
-		evaluation['gt_speaker_word_counts'] = {s: len(t.split()) for s, t in gt_wsw_transcript.items()}
+		evaluation['accent'] = "American"
+		if str(transcript_id) in set(accent_is_british):
+			evaluation['accent'] = "British"
+		elif str(transcript_id) in set(accent_is_southern_us):
+			evaluation['accent'] = "Southern US"
 
-		# *** NEW: Trim audio if a start time is specified ***
-		processing_filepath = original_audio_filepath
-		temp_filepath = None
+		# Get word count of ground truth transcript for WER calculation
+		gt_word_count = len(gt_transcript.split())
+		evaluation['gt_word_count'] = gt_word_count
 
-		if start_time > 0:
-			temp_filepath = f"out/temp_{transcript_id}_trimmed.wav"
-			if trim_audio(original_audio_filepath, temp_filepath, start_time):
-				processing_filepath = temp_filepath
+		# Get word counts for each speaker in ground truth for WSW-WER calculation
+		gt_speaker_word_counts = {}
+		for speaker, text in gt_wsw_transcript.items():
+			gt_speaker_word_counts[speaker] = len(text.split())
+		evaluation['gt_speaker_word_counts'] = gt_speaker_word_counts
+
+		#
+		# PROCESS: get diarized transcript for each of 3 methods
+		#
+		results = process_audio(audio_filepath)
+
+		# EVALUATION
+		# now, compare each with the ground truth item
+		processor_methods = results.keys()
+		for processor in processor_methods:
+
+			logger.info(f"Evaluating GT against processor: {processor}")
+			evaluation[processor] = {}
+
+			#
+			# TRANSCRIPT EVALUATION - Raw distance and both WER metrics
+			#
+			processor_transcript = results[processor]['continuous_transcript']
+
+			# Calculate the raw Levenshtein distance (character level)
+			char_distance = Levenshtein.distance(gt_transcript, processor_transcript)
+			logger.info(f"Continuous transcript character distance: {char_distance}")
+			evaluation[processor]['transcript_char_distance'] = char_distance
+			
+			# Calculate character-level WER (normalized by word count)
+			char_wer = char_distance / gt_word_count
+			logger.info(f"Continuous transcript char-based WER: {char_wer:.4f}")
+			evaluation[processor]['transcript_char_wer'] = char_wer
+			
+			# Calculate true word-level WER
+			word_wer_metrics = calculate_word_level_wer(gt_transcript, processor_transcript)
+			logger.info(f"Word-level WER: {word_wer_metrics['wer']:.4f}")
+			logger.info(f"Word-level errors: {word_wer_metrics['substitutions']} substitutions, "
+						f"{word_wer_metrics['insertions']} insertions, "
+						f"{word_wer_metrics['deletions']} deletions")
+			evaluation[processor]['word_wer_metrics'] = word_wer_metrics
+
+			#
+			# SPEAKER DIARIZATION EVALUATION
+			#
+			processor_wsw_transcript = results[processor]['whosaidwhat_transcript'] # wsw transcript
+			processor_speakers = list(results[processor]['whosaidwhat_transcript'].keys())
+
+			logger.info(f"GT contains {len(gt_speakers)} speakers.")
+			logger.info(f"Processor {processor} detected {len(processor_speakers)} speakers.")
+			evaluation[processor]['speakers'] = processor_speakers
+			evaluation[processor]['num_speakers'] = len(processor_speakers)
+
+			# Find optimal speaker matches
+			speaker_matches, distance_matrix = find_best_speaker_matches(
+				gt_wsw_transcript, processor_wsw_transcript
+			)
+
+			# Now evaluate using the matched speakers
+			evaluation[processor]['wsw_distances'] = {}
+			evaluation[processor]['wsw_wer'] = {}
+			evaluation[processor]['wsw_word_wer'] = {}
+			evaluation[processor]['speaker_matches'] = []
+			
+			for idx, (gt_speaker, p_speaker) in enumerate(speaker_matches):
+				logger.info(f"Matched: GT Speaker {gt_speaker} with {processor} Speaker {p_speaker}")
+				
+				gt_wsw_segment = gt_wsw_transcript[gt_speaker]
+				p_wsw_segment = processor_wsw_transcript[p_speaker]
+				
+				# Get word count for this speaker's ground truth
+				speaker_word_count = gt_speaker_word_counts.get(gt_speaker, 0)
+				
+				# Calculate raw Levenshtein distance (character level)
+				char_wsw_distance = Levenshtein.distance(gt_wsw_segment, p_wsw_segment)
+				logger.info(f"WSW character distance: {char_wsw_distance}")
+				
+				# Calculate character-level WER for this speaker
+				if speaker_word_count > 0:
+					char_wsw_wer = char_wsw_distance / speaker_word_count
+					logger.info(f"WSW char-based WER: {char_wsw_wer:.4f}")
+				else:
+					char_wsw_wer = float('inf')
+					logger.warning(f"Speaker {gt_speaker} has no words in ground truth, cannot calculate WER")
+				
+				# Calculate word-level WER for this speaker
+				speaker_word_wer = calculate_word_level_wer(gt_wsw_segment, p_wsw_segment)
+				logger.info(f"Speaker word-level WER: {speaker_word_wer['wer']:.4f}")
+				
+				# Store all metrics
+				evaluation[processor]['wsw_distances'][idx] = {
+					'speaker_pair': {
+						'gt_speaker': gt_speaker,
+						'p_speaker': p_speaker
+					},
+					'char_distance': char_wsw_distance,
+					'word_count': speaker_word_count,
+					'char_wer': char_wsw_wer,
+					'word_wer': speaker_word_wer['wer'],
+					'word_level_metrics': speaker_word_wer
+				}
+				
+				evaluation[processor]['wsw_wer'][idx] = char_wsw_wer
+				evaluation[processor]['wsw_word_wer'][idx] = speaker_word_wer['wer']
+				
+				evaluation[processor]['speaker_matches'].append({
+					'gt_speaker': gt_speaker,
+					'p_speaker': p_speaker,
+					'char_distance': char_wsw_distance,
+					'char_wer': char_wsw_wer,
+					'word_wer': speaker_word_wer['wer']
+				})
+			
+			# Calculate averages across all speakers
+			# For character-based WER
+			char_wer_values = [data['char_wer'] for idx, data in evaluation[processor]['wsw_distances'].items() 
+							  if data['char_wer'] != float('inf')]
+			
+			if char_wer_values:
+				avg_char_wer = sum(char_wer_values) / len(char_wer_values)
+				evaluation[processor]['average_char_wsw_wer'] = avg_char_wer
+				logger.info(f"Average char-based WSW-WER: {avg_char_wer:.4f}")
 			else:
-				logger.error(f"Could not trim audio for {transcript_id}. Skipping processing.")
-				continue
+				evaluation[processor]['average_char_wsw_wer'] = None
+				logger.warning("Could not calculate average char-based WSW-WER (no valid values)")
+			
+			# For word-level WER
+			word_wer_values = [data['word_wer'] for idx, data in evaluation[processor]['wsw_distances'].items() 
+							  if data['word_wer'] != float('inf')]
+			
+			if word_wer_values:
+				avg_word_wer = sum(word_wer_values) / len(word_wer_values)
+				evaluation[processor]['average_word_wsw_wer'] = avg_word_wer
+				logger.info(f"Average word-level WSW-WER: {avg_word_wer:.4f}")
+			else:
+				evaluation[processor]['average_word_wsw_wer'] = None
+				logger.warning("Could not calculate average word-level WSW-WER (no valid values)")
+			
+			# Also store the complete distance matrix for reference
+			evaluation[processor]['distance_matrix'] = distance_matrix
+
+		# Append this transcript's results immediately to the output file
+		append_result_to_file(transcript_id, evaluation, output_filepath)
 		
-		try:
-			results = process_audio(processing_filepath)
-
-			for processor, proc_data in results.items():
-				logger.info(f"Evaluating GT against processor: {processor}")
-				evaluation[processor] = {}
-
-				# WER on continuous transcript
-				processor_transcript = proc_data['continuous_transcript']
-				wer_result = calculate_wer(gt_transcript, processor_transcript)
-				evaluation[processor]['wer_metrics'] = wer_result
-
-				# Speaker diarization and cpWER
-				processor_wsw = proc_data['whosaidwhat_transcript']
-				num_hyp_speakers = len(processor_wsw.keys())
-				speaker_count_metrics = count_speaker_accuracy(evaluation['gt_num_speakers'], num_hyp_speakers)
-				evaluation[processor]['speaker_count_metrics'] = speaker_count_metrics
-				if not speaker_count_metrics['speaker_count_correct']:
-					transcripts_speaker_count_errors.append({'transcript_id': transcript_id, 'processor': processor, 'gt': evaluation['gt_num_speakers'], 'hyp': num_hyp_speakers})
-
-				cpwer_result = calculate_cpwer(gt_wsw_transcript, processor_wsw)
-				evaluation[processor]['cpwer_metrics'] = cpwer_result
-				evaluation[processor]['individual_speaker_wers'] = {k: v['wer'] for k, v in cpwer_result.get('speaker_wers', {}).items()}
-
-			append_result_to_file(transcript_id, evaluation, output_filepath)
-			comparison_results[transcript_id] = evaluation
-			logger.info(f"Evaluation for transcript {transcript_id} completed and saved.")
-
-		finally:
-			# *** NEW: Clean up the temporary file ***
-			if temp_filepath and os.path.exists(temp_filepath):
-				os.remove(temp_filepath)
-				logger.info(f"Removed temporary file: {temp_filepath}")
+		# Also keep a local copy of all results
+		comparison_results[transcript_id] = evaluation
+		logger.info(f"Evaluation for transcript {transcript_id} completed and saved.")
 
 	logger.info("Workflow finished.")
 	logger.info(f"All results have been written to {output_filepath}")
 
-	if transcripts_speaker_count_errors:
-		logger.info("Transcripts with speaker count errors:")
-		for item in transcripts_speaker_count_errors:
-			logger.info(f"  {item['transcript_id']}: {item['processor']} detected {item['hyp']} vs GT {item['gt']}")
-	
-	generate_summary_statistics(output_filepath)
+	logger.info("Files with diff number of speakers:")
+	for item in transcripts_diffnum_speakers:
+		logger.info(item)
 
-# The rest of your script (generate_summary_statistics, etc.) remains the same.
-# ...
+
 if __name__ == "__main__":
 	main()
